@@ -1,0 +1,26 @@
+{
+  "name": "google-search-mcp",
+  "version": "0.1.0",
+  "description": "Bundled Google Search MCP Server",
+  "type": "module",
+  "main": "google-search.js",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.1",
+    "@mozilla/readability": "^0.6.0",
+    "axios": "^1.7.9",
+    "cheerio": "^1.0.0",
+    "dompurify": "^3.2.3",
+    "googleapis": "^144.0.0",
+    "jsdom": "^25.0.1",
+    "turndown": "^7.2.0"
+  },
+  "keywords": [
+    "mcp",
+    "google-search",
+    "bundle",
+    "search",
+    "web-scraping"
+  ],
+  "author": "",
+  "license": "ISC"
+}

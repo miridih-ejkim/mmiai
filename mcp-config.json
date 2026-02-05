@@ -1,0 +1,32 @@
+{
+  "mcpServers": {
+    "datahub": {
+      "command": "mcp-server-datahub",
+      "env": {
+        "DATAHUB_GMS_URL": "${DATAHUB_GMS_URL}",
+        "DATAHUB_GMS_TOKEN": "${DATAHUB_GMS_TOKEN}"
+      }
+    },
+    "google-search": {
+      "disabled": false,
+      "timeout": 60,
+      "command": "node",
+      "args": ["google-search-mcp/google-search.js"],
+      "env": {
+        "GOOGLE_API_KEY": "${GOOGLE_API_KEY}",
+        "GOOGLE_SEARCH_ENGINE_ID": "${GOOGLE_SEARCH_ENGINE_ID}"
+      }
+    },
+    "atlassian": {
+      "command": "mcp-atlassian",
+      "env": {
+        "CONFLUENCE_URL": "https://miridih.atlassian.net/wiki",
+        "CONFLUENCE_USERNAME": "${CONFLUENCE_USERNAME}",
+        "CONFLUENCE_API_TOKEN": "${CONFLUENCE_API_TOKEN}",
+        "JIRA_URL": "https://miridih.atlassian.net",
+        "JIRA_USERNAME": "${JIRA_USERNAME}",
+        "JIRA_API_TOKEN": "${JIRA_API_TOKEN}"
+      }
+    }
+  }
+}
