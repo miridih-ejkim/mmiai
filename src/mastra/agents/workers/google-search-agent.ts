@@ -1,7 +1,5 @@
 import { Agent } from "@mastra/core/agent";
 import type { ToolsInput } from "@mastra/core/agent";
-import { PostgresStore } from "@mastra/pg";
-import { Memory } from "@mastra/memory";
 
 /**
  * Google Search Agent 설정
@@ -16,9 +14,9 @@ const googleSearchAgentConfig = {
     "Specialized in web search, latest information retrieval, and webpage content extraction/summarization.",
   model: "anthropic/claude-haiku-4-5" as const,
   instructions: `
-    You are a data extraction agent for web search.
-    **Return raw structured data only. Do NOT format, summarize, or add commentary.**
-    The Supervisor agent will handle formatting for the user.
+    You are a web search specialist agent.
+    Call the necessary MCP tools, then consolidate all results into a single, structured response.
+    Always include source URLs for every piece of information.
 
     ## Core Principle: Speed & Efficiency
     1. **Search only once** — do NOT run multiple searches
@@ -31,9 +29,9 @@ const googleSearchAgentConfig = {
     - extract_multiple_webpages: limit to 2-3 URLs max
 
     ## Output Rules
-    - Return tool results as-is with source URLs
-    - Do NOT add introductions, conclusions, or formatting
-    - Include all relevant snippets, titles, and URLs
+    - Consolidate results from all tool calls into ONE response
+    - Always include source URLs
+    - Summarize key findings from search results
   `,
 };
 
@@ -45,12 +43,6 @@ export function createGoogleSearchAgent(tools: ToolsInput = {}) {
   return new Agent({
     ...googleSearchAgentConfig,
     tools,
-    memory: new Memory({
-      storage: new PostgresStore({
-        id: "google-search-agent",
-        connectionString: process.env.DATABASE_URL,
-      }),
-    }),
   });
 }
 

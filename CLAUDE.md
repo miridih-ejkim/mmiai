@@ -4,8 +4,8 @@
 
 Mastra 기반 Multi-Agent AI 애플리케이션 (MMIAI)
 
-LangGraph 단일 Agent 구조(miai)에서 Mastra Agent Network 구조로 마이그레이션한 프로젝트.
-Coordinator가 사용자 요청을 분석하여 적절한 Worker Agent에 위임하는 Multi-Agent Network 패턴.
+LangGraph 단일 Agent → Mastra Agent Network → **Mastra Workflow** 구조로 진화한 프로젝트.
+Workflow가 사용자 요청을 구조화된 Step으로 처리하는 **Deterministic Workflow 패턴**.
 
 **Mastra Agent Server**와 **Next.js UI**가 분리 배포/스케일링 가능한 구조.
 
@@ -14,7 +14,7 @@ Coordinator가 사용자 요청을 분석하여 적절한 Worker Agent에 위임
 - **Runtime**: Node.js >= 22.13.0
 - **Framework**: Next.js 16 (App Router) - UI Only
 - **Agent Server**: Mastra Server (port 4111)
-- **Agent Framework**: Mastra (Agent Network 패턴)
+- **Agent Framework**: Mastra (Workflow 패턴)
 - **MCP**: @mastra/mcp (Model Context Protocol 통합)
 - **Language**: TypeScript (ES2022, ESM)
 - **LLM**: Anthropic Claude Sonnet 4.5 (`anthropic/claude-sonnet-4-5`)
@@ -33,10 +33,15 @@ Next.js (UI Only, port 3000)
   │  /mastra/* → rewrite
   ▼
 Mastra Agent Server (port 4111)
-  │  networkRoute("/chat")
+  │  workflowRoute("/chat")
   │  registerApiRoute("/chat-history")
   │
-  ├── Coordinator (Agent Network)
+  ├── Chat Workflow
+  │     ├── Step 1: Intent Classification (structured output)
+  │     ├── Step 2: .branch() → Agent Steps / Multi-Agent Sub-Workflow
+  │     └── Step 3: Response Synthesis
+  │
+  ├── Worker Agents
   │     ├── AtlassianAgent → MCP (HTTP)
   │     ├── GoogleSearchAgent → MCP (stdio)
   │     └── DataHubAgent → MCP (HTTP)
@@ -69,53 +74,105 @@ mmiai/
 │   │   └── utils.ts            # 유틸리티 함수
 │   └── mastra/                 # Mastra Agent 설정 (Server 전용)
 │       ├── index.ts            # top-level await, mastra export
-│       ├── init.ts             # initializeMastra() - Agent/Mastra/Server 라우트 설정
+│       ├── init.ts             # initializeMastra() - Workflow/Agent/Mastra 설정
 │       ├── mcp/
 │       │   └── client.ts       # MCPClient 설정 (하이브리드 HTTP/stdio)
+│       ├── workflows/          # Workflow 정의
+│       │   ├── chat-workflow.ts       # 메인 Chat Workflow
+│       │   └── steps/                 # Workflow Steps
+│       │       ├── classify-intent.ts # 의도 분류 Step
+│       │       ├── agent-steps.ts     # Agent 실행 Steps
+│       │       ├── merge-results.ts   # 결과 병합 Step
+│       │       └── synthesize.ts      # 최종 응답 합성 Step
 │       └── agents/
-│           └── workers/        # Worker Agents
-│               ├── index.ts    # export 집합
-│               ├── atlassian-agent.ts    # Confluence/Jira 전문
-│               ├── google-search-agent.ts # 웹 검색 전문
-│               └── datahub-agent.ts      # 데이터 카탈로그 전문
-├── Dockerfile.server           # Mastra Agent Server 이미지
-├── Dockerfile.web              # Next.js UI 이미지
-├── docker-compose.yml          # 로컬 개발용 Docker Compose
-├── next.config.ts              # /mastra/* → Agent Server rewrite
-├── mcp-config.json             # MCP 서버 설정 (Mastra Studio용)
+│           ├── classifier-agent.ts    # 의도 분류 전용 Agent (Haiku)
+│           ├── final-responser/       # 최종 응답 합성 Agent
+│           └── workers/               # Worker Agents
+│               ├── index.ts
+│               ├── atlassian-agent.ts
+│               ├── google-search-agent.ts
+│               └── datahub-agent.ts
+├── docs/
+│   └── workflow-migration-analysis.md  # Workflow 전환 분석 문서
+├── Dockerfile.server
+├── Dockerfile.web
+├── docker-compose.yml
+├── next.config.ts
+├── mcp-config.json
 ├── package.json
 └── tsconfig.json
 ```
 
-## Multi-Agent 아키텍처
+## Workflow 아키텍처
+
+### 전체 흐름
 
 ```
-┌─────────────────────────────────────────────┐
-│              Coordinator                     │
-│  - 사용자 요청 분석 및 라우팅                   │
-│  - Worker Agent 선택/조율                     │
-│  - 결과 통합                                  │
-│  - Memory 연동 (대화 기록 유지)                 │
-└──────────┬──────────┬──────────┬─────────────┘
-           │          │          │
-     ┌─────▼────┐ ┌───▼──────┐ ┌▼───────────┐
-     │Atlassian │ │Google    │ │DataHub     │
-     │Agent     │ │Search   │ │Agent       │
-     │          │ │Agent    │ │            │
-     │Confluence│ │웹 검색   │ │데이터 카탈로그│
-     │Jira      │ │콘텐츠 추출│ │리니지 분석   │
-     │          │ │          │ │            │
-     │MCP: HTTP │ │MCP: stdio│ │MCP: HTTP   │
-     └──────────┘ └──────────┘ └────────────┘
+User Message
+     │
+     ▼
+┌────────────────┐
+│ 1. Classify    │  ← Haiku (비용 절감, structured output)
+│ Intent & Route │  → { type, targets[], queries{} }
+└───────┬────────┘
+        │
+   ┌────┴──── .branch() ────────────────────┐
+   │         (결정적 분기)                     │
+   ▼              ▼              ▼           ▼
+┌──────┐   ┌──────────┐   ┌─────────┐  ┌──────────────┐
+│Simple│   │Single    │   │Single   │  │Multi-Agent   │
+│직접   │   │Agent     │   │Agent    │  │.parallel()   │
+│응답   │   │(ATL/DHB) │   │(GGL)    │  │┌───┬───┬───┐ │
+└──┬───┘   └────┬─────┘   └───┬─────┘  ││ATL│GGL│DHB│ │
+   │            │              │        │└─┬─┴─┬─┴─┬─┘ │
+   │            │              │        │  └───┼───┘   │
+   │            │              │        │  Merge Step  │
+   │            │              │        └──────┬───────┘
+   └────────────┴──────────────┴───────────────┘
+                       │
+                  .map() (출력 정규화)
+                       │
+                       ▼
+              ┌─────────────────┐
+              │ Final: Response │  ← Agent (Haiku)
+              │ Synthesis       │  ← 결과 통합 전용
+              └─────────────────┘
+                       │
+                       ▼
+                  User Response
 ```
+
+### 설계 원칙
+
+| 원칙 | 구현 방식 |
+|------|----------|
+| 라우팅 | 구조화된 분류 + `.branch()` (결정적) |
+| 데이터 흐름 | Zod 스키마 검증 (Step 간 타입 안전) |
+| 병렬 실행 | `.parallel()` 명시적 제어 |
+| 에러 처리 | Step 단위 try/catch + 재시도 |
+| 관측성 | Step별 input/output 자동 추적 |
+
+### Workflow Steps
+
+| Step | 역할 | 모델 | 설명 |
+|------|------|------|------|
+| `classify-intent` | 의도 분류 | Haiku | structured output으로 type/targets/queries 반환 |
+| `direct-response` | 직접 응답 | Haiku | 인사말 등 단순 질문 직접 처리 |
+| `atlassian-agent` | Confluence/Jira | Haiku | MCP(HTTP)로 사내 문서/이슈 검색 |
+| `google-search-agent` | 웹 검색 | Haiku | MCP(stdio)로 Google 검색/콘텐츠 추출 |
+| `datahub-agent` | 데이터 카탈로그 | Haiku | MCP(HTTP)로 메타데이터/리니지 조회 |
+| `merge-results` | 결과 병합 | - | Multi-Agent 병렬 결과 통합 (로직만) |
+| `synthesize-response` | 최종 응답 | Haiku | 검색 결과 기반 사용자 응답 생성 |
 
 ### 라우팅 규칙
 
-| 요청 유형 | 대상 Agent | 키워드/패턴 |
-|-----------|-----------|------------|
-| 사내 문서/이슈 | AtlassianAgent | Confluence, Jira, 문서, 이슈, 위키, 회의록 |
-| 외부 정보 검색 | GoogleSearchAgent | 최신, 최근, 뉴스, 검색, URL 요약 |
-| 데이터 메타데이터 | DataHubAgent | 테이블, 데이터셋, 스키마, 리니지, lineage |
+| 분류 type | 대상 | 키워드/패턴 |
+|-----------|------|------------|
+| `simple` | 직접 응답 | 인사말, 단순 질문 |
+| `atlassian` | AtlassianAgent | Confluence, Jira, 문서, 이슈, 위키, 회의록 |
+| `google-search` | GoogleSearchAgent | 최신, 최근, 뉴스, 검색, URL 요약 |
+| `datahub` | DataHubAgent | 테이블, 데이터셋, 스키마, 리니지, lineage |
+| `multi-agent` | 병렬 실행 | 복합 질문 (2개 이상 도메인) |
 
 ## MCP 아키텍처 (하이브리드)
 
@@ -151,7 +208,7 @@ mmiai/
 
 | 경로 | 메서드 | 설명 |
 |------|--------|------|
-| `/chat` | POST | Agent Network 스트리밍 (useChat 호환, networkRoute) |
+| `/chat` | POST | Workflow 스트리밍 (run.stream(), useChat 호환) |
 | `/chat-history` | GET | 대화 기록 조회 (registerApiRoute) |
 
 > 참고: `/api/*` 경로는 Mastra 내부 예약 (agents, workflows 등)
@@ -161,19 +218,23 @@ mmiai/
 ```
 src/mastra/index.ts (top-level await)
   └── initializeMastra()
-        ├── mcpClient.listTools()        # MCP 도구 로드
-        ├── createAtlassianAgent(tools)   # Worker 생성
+        ├── mcpClient.listTools()           # MCP 도구 로드
+        ├── createAtlassianAgent(tools)      # Worker Agent 생성
         ├── createGoogleSearchAgent(tools)
         ├── createDataHubAgent(tools)
-        ├── new Agent({ agents: {...} })  # Coordinator 생성
+        ├── createClassifierAgent()          # 의도 분류 Agent 생성
+        ├── createFinalResponserAgent()      # 최종 응답 Agent 생성
+        ├── chatWorkflow.commit()            # Workflow 구성 확정
         └── new Mastra({
               agents: {...},
-              server: { apiRoutes: [...] }  # 라우트 설정 (constructor)
+              workflows: { chatWorkflow },
+              server: { apiRoutes: [...] }
             })
 ```
 
 - top-level await로 서버 시작 시 즉시 초기화
 - Worker Agent는 팩토리 함수로 MCP 도구 주입받아 생성
+- Workflow는 `createWorkflow()` → `.then()` / `.branch()` / `.parallel()` → `.commit()`으로 구성
 
 ## 환경변수
 
@@ -214,17 +275,20 @@ npm run start        # Next.js UI 시작
 docker compose up --build  # 로컬 Docker 테스트
 ```
 
-## Agent 추가 방법
+## 확장 방법
 
 ### Worker Agent 추가
 1. `src/mastra/agents/workers/`에 Agent 파일 생성 (팩토리 패턴)
    - `createXxxAgent(tools: ToolsInput)` 팩토리 함수 export
    - `xxxAgent` 기본 인스턴스 export (테스트/개발용)
 2. `src/mastra/agents/workers/index.ts`에 export 추가
-3. `src/mastra/init.ts`의 `initializeMastra()`에서:
+3. `src/mastra/workflows/steps/agent-steps.ts`에 Agent Step 추가
+4. `src/mastra/workflows/chat-workflow.ts`에서:
+   - `classify-intent` Step의 분류 type에 새 Agent 추가
+   - `.branch()` 조건에 새 분기 추가
+   - Multi-Agent `.parallel()`에 새 Agent Step 추가
+5. `src/mastra/init.ts`의 `initializeMastra()`에서:
    - 팩토리 함수로 Agent 생성 (MCP 도구 주입)
-   - Coordinator의 `agents` 객체에 등록
-   - Coordinator `instructions`에 라우팅 지침 추가
    - Mastra의 `agents` 객체에 등록
 
 ### MCP 서버 추가
@@ -232,6 +296,12 @@ docker compose up --build  # 로컬 Docker 테스트
    - HTTP 서버: `url: new URL("http://...")`
    - stdio 서버: `command: "...", args: [...]`
 2. Worker Agent에서 해당 도구 사용
+
+### Workflow Step 추가
+1. `src/mastra/workflows/steps/`에 Step 파일 생성
+   - `createStep({ id, inputSchema, outputSchema, execute })`
+2. `chat-workflow.ts`에서 적절한 위치에 `.then()` / `.branch()` / `.parallel()`로 연결
+3. 전후 Step의 스키마 호환성 확인 (필요시 `.map()`으로 변환)
 
 ## 주요 비즈니스 규칙
 

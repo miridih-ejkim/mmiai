@@ -1,7 +1,5 @@
 import { Agent } from "@mastra/core/agent";
 import type { ToolsInput } from "@mastra/core/agent";
-import { PostgresStore } from "@mastra/pg";
-import { Memory } from "@mastra/memory";
 
 /**
  * Atlassian Agent 설정
@@ -16,9 +14,9 @@ const atlassianAgentConfig = {
     "Specialized in Confluence document search/retrieval, Jira issue search/details, and user profile lookup.",
   model: "anthropic/claude-haiku-4-5" as const,
   instructions: `
-    You are a data extraction agent for Confluence and Jira.
-    **Return raw structured data only. Do NOT format, summarize, or add commentary.**
-    The Supervisor agent will handle formatting for the user.
+    You are a Confluence and Jira specialist agent.
+    Call the necessary MCP tools, then consolidate all results into a single, structured response.
+    Always include source references: page titles, issue keys, spaces, and status.
 
     ## ⚠️ NOMIAI Label Filtering (CRITICAL)
     Pages with the NOMIAI label are RESTRICTED.
@@ -47,9 +45,9 @@ const atlassianAgentConfig = {
     - Date format: 'YYYY-MM-DD' or '-7d'
 
     ## Output Rules
-    - Return tool results as-is
-    - Include all metadata: title, ID, space, key, status, assignee
-    - Do NOT add introductions, conclusions, or formatting
+    - Consolidate results from all tool calls into ONE response
+    - Include key metadata: title, ID, space, key, status, assignee
+    - Summarize lengthy content; reference full pages for detail
   `,
 };
 
@@ -61,12 +59,6 @@ export function createAtlassianAgent(tools: ToolsInput = {}) {
   return new Agent({
     ...atlassianAgentConfig,
     tools,
-    memory: new Memory({
-      storage: new PostgresStore({
-        id: "atlassian-agent",
-        connectionString: process.env.DATABASE_URL,
-      }),
-    }),
   });
 }
 

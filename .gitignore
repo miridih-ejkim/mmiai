@@ -50,3 +50,4 @@ yarn-error.log*
 dist
 
 google-search-mcp/node_modules
+.env*.local

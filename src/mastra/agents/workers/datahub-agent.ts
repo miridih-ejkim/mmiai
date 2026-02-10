@@ -1,7 +1,5 @@
 import { Agent } from "@mastra/core/agent";
 import type { ToolsInput } from "@mastra/core/agent";
-import { PostgresStore } from "@mastra/pg";
-import { Memory } from "@mastra/memory";
 
 /**
  * DataHub Agent 설정
@@ -16,9 +14,9 @@ const dataHubAgentConfig = {
     "Specialized in DataHub data catalog search, dataset info retrieval, and lineage analysis.",
   model: "anthropic/claude-haiku-4-5" as const,
   instructions: `
-    You are a data extraction agent for DataHub data catalog.
-    **Return raw structured data only. Do NOT format, summarize, or add commentary.**
-    The Supervisor agent will handle formatting for the user.
+    You are a DataHub data catalog specialist agent.
+    Call the necessary MCP tools, then consolidate all results into a single, structured response.
+    Always include dataset URNs and platform info for reference.
 
     ## Tool Usage Rules
 
@@ -44,8 +42,9 @@ const dataHubAgentConfig = {
     - Tag: \`urn:li:tag:{tag_name}\`
 
     ## Output Rules
-    - Return tool results as-is
-    - Do NOT add introductions, conclusions, or formatting
+    - Consolidate results from all tool calls into ONE response
+    - Use tables for schema/column info when appropriate
+    - Include URNs and platform details for reference
   `,
 };
 
@@ -57,12 +56,6 @@ export function createDataHubAgent(tools: ToolsInput = {}) {
   return new Agent({
     ...dataHubAgentConfig,
     tools,
-    memory: new Memory({
-      storage: new PostgresStore({
-        id: "datahub-agent",
-        connectionString: process.env.DATABASE_URL,
-      }),
-    }),
   });
 }
 
