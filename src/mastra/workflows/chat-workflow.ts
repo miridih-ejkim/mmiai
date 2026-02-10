@@ -16,6 +16,7 @@ import {
 } from "./steps/agent-steps";
 import { mergeResultsStep } from "./steps/merge-results";
 import { synthesizeResponseStep } from "./steps/synthesize-response";
+import { qualityCheckStep } from "./steps/quality-check";
 
 /**
  * Multi-Agent Sub-Workflow
@@ -53,6 +54,10 @@ const multiAgentWorkflow = createWorkflow({
  * .map() (출력 정규화):
  *   .branch() 출력에서 실행된 분기의 결과만 추출
  *
+ * Quality Check (quality-check):
+ *   Scorer 기반 품질 평가 → 통과 시 다음 Step, 실패 시 suspend (HITL)
+ *   Resume 시 사용자 피드백으로 Agent 재실행
+ *
  * Final Step (synthesize-response):
  *   Final Responser Agent (Haiku)가 결과를 사용자 친화적 응답으로 합성
  *   writer.pipeTo()로 실시간 스트리밍
@@ -61,7 +66,8 @@ const multiAgentWorkflow = createWorkflow({
  *   { message } → { type, targets[], queries{}, reasoning }
  *     → .branch() → { "step-id"?: { source, content, success } }
  *       → .map() → { source, content, success }
- *         → { response }
+ *         → quality-check (suspend 가능)
+ *           → { response }
  */
 export const chatWorkflow = createWorkflow({
   id: "chat-workflow",
@@ -107,5 +113,6 @@ export const chatWorkflow = createWorkflow({
 
     return result || { source: "unknown", content: "", success: false };
   })
+  .then(qualityCheckStep)
   .then(synthesizeResponseStep)
   .commit();

@@ -8,7 +8,6 @@ import {
   DefaultExporter,
   SensitiveDataFilter,
 } from "@mastra/observability";
-import { workflowRoute } from "@mastra/ai-sdk";
 import { registerApiRoute } from "@mastra/core/server";
 
 import { mcpServers, mcpToolsByService, disconnectMcp } from "./mcp";
@@ -24,14 +23,15 @@ import { chatWorkflow } from "./workflows/chat-workflow";
 /**
  * Mastra 인스턴스 비동기 초기화
  *
- * Deterministic Workflow 구조:
+ * Deterministic Workflow + HITL 구조:
  * - Step 1: Classifier Agent (Haiku) → 의도 분류 (structured output)
  * - .branch(): 분류 결과에 따라 결정적 분기
  *   - simple → 직접 응답
  *   - single-agent → 해당 Worker Agent 호출
  *   - multi-agent → .parallel() 병렬 실행 + merge
  * - .map(): 출력 정규화
- * - Final: Final Responser Agent (Haiku) → 응답 합성 + 스트리밍
+ * - Quality Check: Scorer 기반 품질 평가 → 실패 시 suspend (HITL)
+ * - Final: Final Responser Agent (Haiku) → 응답 합성
  */
 export async function initializeMastra(): Promise<{
   mastra: Mastra;
@@ -82,10 +82,51 @@ export async function initializeMastra(): Promise<{
     }),
     server: {
       apiRoutes: [
-        // Workflow 스트리밍 (useChat 호환)
-        workflowRoute({
-          path: "/chat",
-          workflow: "chatWorkflow",
+        // Chat Workflow (suspend/resume 지원 커스텀 라우트)
+        registerApiRoute("/chat", {
+          method: "POST",
+          handler: async (c) => {
+            const body = await c.req.json();
+            const workflow = mastra.getWorkflow("chatWorkflow");
+
+            let result: any;
+
+            if (body.runId && body.resumeData) {
+              // === Resume: suspend된 워크플로우 재개 ===
+              const run = await workflow.createRun({ runId: body.runId });
+              result = await run.resume({
+                step: "quality-check",
+                resumeData: body.resumeData,
+              });
+            } else {
+              // === New: 새 워크플로우 실행 ===
+              const run = await workflow.createRun();
+              result = await run.start({
+                inputData: body.inputData || { message: body.message || "" },
+              });
+            }
+
+            // Suspended → 사용자 피드백 요청
+            if (result.status === "suspended") {
+              const suspendPayload =
+                result.steps?.["quality-check"]?.suspendPayload as
+                  | { reason?: string; score?: number; originalSource?: string }
+                  | undefined;
+              return c.json({
+                status: "suspended",
+                runId: result.runId,
+                reason: suspendPayload?.reason || "품질 검증 실패",
+                score: suspendPayload?.score ?? 0,
+                originalSource: suspendPayload?.originalSource || "unknown",
+              });
+            }
+
+            // Completed → 응답 반환
+            return c.json({
+              status: "completed",
+              response: result.result?.response || "",
+            });
+          },
         }),
         // 대화 기록 조회 (향후 메모리 통합 예정)
         registerApiRoute("/chat-history", {
