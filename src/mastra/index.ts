@@ -1,5 +1,6 @@
 // top-level await (ESM)
 import { Mastra } from "@mastra/core/mastra";
+import { RequestContext } from "@mastra/core/request-context";
 import { PinoLogger } from "@mastra/loggers";
 import { PostgresStore } from "@mastra/pg";
 
@@ -10,7 +11,13 @@ import {
 } from "@mastra/observability";
 import { registerApiRoute } from "@mastra/core/server";
 
-import { mcpServers, mcpToolsByService, disconnectMcp } from "./mcp";
+import {
+  mcpConnectionManager,
+  MCP_REGISTRY,
+  getUserActiveMcpIds,
+  setUserMcpActivation,
+  getUserMcpStatuses,
+} from "./mcp";
 import {
   createAtlassianAgent,
   createGoogleSearchAgent,
@@ -18,36 +25,31 @@ import {
 } from "./agents/workers";
 import { createClassifierAgent } from "./agents/classifier-agent";
 import { createFinalResponserAgent } from "./agents/final-responser";
+
 import { chatWorkflow } from "./workflows/chat-workflow";
 
 /**
  * Mastra 인스턴스 비동기 초기화
  *
- * Deterministic Workflow + HITL 구조:
- * - Step 1: Classifier Agent (Haiku) → 의도 분류 (structured output)
- * - .branch(): 분류 결과에 따라 결정적 분기
- *   - simple → 직접 응답
- *   - single-agent → 해당 Worker Agent 호출
- *   - multi-agent → .parallel() 병렬 실행 + merge
- * - .map(): 출력 정규화
- * - Quality Check: Scorer 기반 품질 평가 → 실패 시 suspend (HITL)
- * - Final: Final Responser Agent (Haiku) → 응답 합성
+ * Lazy MCP Loading + Deterministic Workflow + HITL 구조:
+ * - Worker Agent를 도구 없이 생성 (도구는 요청 시점에 lazy 주입)
+ * - RequestContext로 userId, activeMcpIds를 워크플로우에 전달
+ * - classify-intent가 활성 MCP만 대상으로 분류
+ * - agent-step에서 MCPConnectionManager.getToolsets()로 동적 toolsets 주입
  */
 export async function initializeMastra(): Promise<{
   mastra: Mastra;
   shutdown: () => Promise<void>;
 }> {
-  // Worker Agents 생성 (서비스별 MCP 도구 주입)
-  const atlassianAgent = createAtlassianAgent(mcpToolsByService.atlassian);
-  const googleSearchAgent = createGoogleSearchAgent(
-    mcpToolsByService.googleSearch,
-  );
-  const dataHubAgent = createDataHubAgent(mcpToolsByService.datahub);
+  // Worker Agents 생성 (도구 없이 — 요청 시점에 lazy toolsets 주입)
+  const atlassianAgent = createAtlassianAgent();
+  const googleSearchAgent = createGoogleSearchAgent();
+  const dataHubAgent = createDataHubAgent();
 
-  // Classifier Agent 생성 (의도 분류 전용, 도구/메모리 없음)
+  // Classifier Agent 생성 (의도 분류 전용, 도구 없음)
   const classifierAgent = createClassifierAgent();
 
-  // Final Responser Agent 생성 (응답 합성 전용, 도구/메모리 없음)
+  // Final Responser Agent 생성 (응답 합성 전용, 도구 없음)
   const finalResponserAgent = createFinalResponserAgent();
 
   // Mastra 인스턴스 생성
@@ -62,7 +64,6 @@ export async function initializeMastra(): Promise<{
     workflows: {
       chatWorkflow,
     },
-    mcpServers,
     storage: new PostgresStore({
       id: "mastra",
       connectionString: process.env.DATABASE_URL,
@@ -89,35 +90,71 @@ export async function initializeMastra(): Promise<{
             const body = await c.req.json();
             const workflow = mastra.getWorkflow("chatWorkflow");
 
+            // 사용자별 활성 MCP 조회
+            const userId = body.userId || "default-user";
+            const activeMcpIds = await getUserActiveMcpIds(userId);
+
+            // RequestContext 생성
+            const requestContext = new RequestContext();
+            requestContext.set("userId", userId);
+            requestContext.set("activeMcpIds", activeMcpIds);
+
             let result: any;
 
             if (body.runId && body.resumeData) {
-              // === Resume: suspend된 워크플로우 재개 ===
-              const run = await workflow.createRun({ runId: body.runId });
-              result = await run.resume({
-                step: "quality-check",
-                resumeData: body.resumeData,
-              });
+              const action = body.resumeData.action;
+
+              if (action === "new") {
+                // === New: 사용자의 새 질문으로 새 워크플로우 시작 ===
+                const run = await workflow.createRun();
+                result = await run.start({
+                  inputData: {
+                    message: body.resumeData.userFeedback || "",
+                  },
+                  requestContext,
+                });
+              } else {
+                // === Refine / Reroute: suspend된 워크플로우 재개 ===
+                const run = await workflow.createRun({ runId: body.runId });
+                result = await run.resume({
+                  step: "quality-check",
+                  resumeData: body.resumeData,
+                  requestContext,
+                });
+              }
             } else {
               // === New: 새 워크플로우 실행 ===
               const run = await workflow.createRun();
               result = await run.start({
                 inputData: body.inputData || { message: body.message || "" },
+                requestContext,
               });
             }
 
-            // Suspended → 사용자 피드백 요청
+            // Suspended → 선택지 포함 응답
             if (result.status === "suspended") {
               const suspendPayload =
                 result.steps?.["quality-check"]?.suspendPayload as
-                  | { reason?: string; score?: number; originalSource?: string }
+                  | {
+                      reason?: string;
+                      score?: number;
+                      originalSource?: string;
+                      options?: Array<{ value: string; label: string }>;
+                      availableAgents?: Array<{
+                        value: string;
+                        label: string;
+                      }>;
+                    }
                   | undefined;
               return c.json({
                 status: "suspended",
                 runId: result.runId,
                 reason: suspendPayload?.reason || "품질 검증 실패",
                 score: suspendPayload?.score ?? 0,
-                originalSource: suspendPayload?.originalSource || "unknown",
+                originalSource:
+                  suspendPayload?.originalSource || "unknown",
+                options: suspendPayload?.options || [],
+                availableAgents: suspendPayload?.availableAgents || [],
               });
             }
 
@@ -135,13 +172,52 @@ export async function initializeMastra(): Promise<{
             return c.json([]);
           },
         }),
+        // MCP 레지스트리 조회 (관리자 승인 MCP 목록)
+        registerApiRoute("/mcp/registry", {
+          method: "GET",
+          handler: async (c) => {
+            return c.json(
+              MCP_REGISTRY.map((entry) => ({
+                id: entry.id,
+                name: entry.name,
+                description: entry.description,
+              })),
+            );
+          },
+        }),
+        // 사용자별 MCP 활성화 상태 조회
+        registerApiRoute("/mcp/activations", {
+          method: "GET",
+          handler: async (c) => {
+            const userId =
+              c.req.query("userId") || "default-user";
+            const statuses = await getUserMcpStatuses(userId);
+            return c.json(statuses);
+          },
+        }),
+        // 사용자별 MCP 활성화 토글
+        registerApiRoute("/mcp/activations", {
+          method: "POST",
+          handler: async (c) => {
+            const body = await c.req.json();
+            const { userId, mcpId, active } = body;
+            if (!userId || !mcpId || active === undefined) {
+              return c.json(
+                { error: "userId, mcpId, active are required" },
+                400,
+              );
+            }
+            await setUserMcpActivation(userId, mcpId, active);
+            return c.json({ success: true });
+          },
+        }),
       ],
     },
   });
 
   return {
     mastra,
-    shutdown: disconnectMcp,
+    shutdown: () => mcpConnectionManager.disconnectAll(),
   };
 }
 

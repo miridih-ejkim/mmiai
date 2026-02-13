@@ -1,31 +1,20 @@
-import {
-  atlassianMcpClient,
-  datahubMcpClient,
-  googleSearchMcpClient,
-  disconnectMcp as disconnectMcpClients,
-} from "./client";
-import { createMcpServers } from "./server";
-
 /**
- * MCP 오케스트레이션
+ * MCP 모듈 진입점
  *
- * 1. MCPClient로 외부 MCP 서버에 연결하여 도구를 로드
- * 2. MCPServer 인스턴스로 래핑하여 Mastra에 등록 가능하게 export
- *
- * top-level await로 서버 시작 시 즉시 초기화됩니다.
+ * Lazy MCP Loading 아키텍처:
+ * - 서버 시작 시 MCP 연결 없음
+ * - 요청 시점에 McpConnectionManager가 필요한 MCP만 lazy connect
+ * - 사용자별 활성화 상태는 PostgreSQL로 관리
  */
-const { servers: mcpServers, toolsByService: mcpToolsByService, cleanup: cleanupFallback } =
-  await createMcpServers({
-    atlassian: atlassianMcpClient,
-    datahub: datahubMcpClient,
-    googleSearch: googleSearchMcpClient,
-  });
-
-export { mcpServers, mcpToolsByService };
-
-/**
- * 모든 MCP 연결 해제 (MCPClient + fallback SDK Client)
- */
-export async function disconnectMcp() {
-  await Promise.allSettled([disconnectMcpClients(), cleanupFallback()]);
-}
+export { mcpConnectionManager } from "./connection-manager";
+export {
+  MCP_REGISTRY,
+  getRegistryEntry,
+  getAllMcpIds,
+  type McpServerRegistryEntry,
+} from "./mcp-registry";
+export {
+  getUserActiveMcpIds,
+  setUserMcpActivation,
+  getUserMcpStatuses,
+} from "./user-activation";

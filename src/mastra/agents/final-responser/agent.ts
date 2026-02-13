@@ -1,5 +1,6 @@
 import { Agent } from "@mastra/core/agent";
-
+import { Memory } from "@mastra/memory";
+import { PostgresStore } from "@mastra/pg";
 /**
  * Final Responser Agent 설정
  * 검색 결과를 사용자 친화적 응답으로 합성
@@ -27,5 +28,13 @@ const finalResponserConfig = {
  * Final Responser Agent 팩토리 함수
  */
 export function createFinalResponserAgent() {
-  return new Agent(finalResponserConfig);
+  return new Agent({
+    ...finalResponserConfig,
+    memory: new Memory({
+      storage: new PostgresStore({
+        id: "final-responser",
+        connectionString: process.env.DATABASE_URL,
+      }),
+    }),
+  });
 }

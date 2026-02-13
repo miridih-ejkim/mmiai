@@ -1,17 +1,18 @@
 import { createStep } from "@mastra/core/workflows";
 import { z } from "zod";
-import { classificationOutputSchema } from "./classify-intent";
+import { classificationOutputSchema, type SequentialQuery } from "./classify-intent";
+import { mcpConnectionManager, getRegistryEntry, getAllMcpIds } from "../../mcp";
 
 /**
  * Agent 실행 결과 스키마
- * 모든 경로(direct, single-agent, multi-agent)에서 동일한 형태로 반환
+ * 모든 경로(direct, agent)에서 동일한 형태로 반환
  * .branch()의 모든 분기가 동일한 outputSchema를 가져야 하므로 공유
  */
 export const agentResultSchema = z.object({
   source: z
     .string()
     .describe(
-      "결과 출처 (direct, atlassian, google-search, datahub, multi-agent)",
+      "결과 출처 (direct, atlassian, google-search, datahub, multi-agent 등)",
     ),
   content: z.string().describe("Agent 실행 결과 텍스트"),
   success: z.boolean().describe("실행 성공 여부"),
@@ -37,170 +38,132 @@ export const directResponseStep = createStep({
 });
 
 /**
- * Atlassian Agent Step (atlassian 분기)
- * Confluence/Jira 검색 전문
+ * Agent Step (agent 분기 — 통합)
+ *
+ * targets 기반으로 1개 또는 N개의 Worker Agent를 동적으로 호출합니다.
+ * - targets 1개: single agent 호출, source = 해당 MCP ID
+ * - targets 2개+: executionMode에 따라 병렬/순차 호출, source = "multi-agent"
+ *
+ * Registry에 MCP가 추가되면 별도 Step/branch 수정 없이 자동 확장됩니다.
  */
-export const atlassianAgentStep = createStep({
-  id: "atlassian-agent-step",
+export const agentStep = createStep({
+  id: "agent-step",
   inputSchema: classificationOutputSchema,
   outputSchema: agentResultSchema,
-  execute: async ({ inputData, mastra, getInitData }) => {
+  execute: async ({ inputData, mastra, getInitData, requestContext }) => {
     const initData = getInitData<{ message: string }>();
-    const query =
-      inputData.queries["atlassian"] || initData?.message || "";
+    const userMessage = initData?.message || "";
+    const activeMcpIds =
+      (requestContext?.get("activeMcpIds") as string[] | undefined) ||
+      getAllMcpIds();
 
-    try {
-      const agent = mastra!.getAgent("atlassianAgent");
-      const result = await agent.generate(query);
-      return { source: "atlassian", content: result.text, success: true };
-    } catch (error) {
+    // 활성 MCP만 필터링
+    const activeTargets = inputData.targets.filter((t) =>
+      activeMcpIds.includes(t),
+    );
+
+    if (activeTargets.length === 0) {
       return {
-        source: "atlassian",
-        content: `Atlassian Agent 오류: ${error instanceof Error ? error.message : String(error)}`,
+        source: "agent",
+        content: "활성화된 대상 Agent가 없습니다.",
         success: false,
       };
     }
-  },
-});
 
-/**
- * Google Search Agent Step (google-search 분기)
- * 웹 검색 및 콘텐츠 추출 전문
- */
-export const googleSearchAgentStep = createStep({
-  id: "google-search-agent-step",
-  inputSchema: classificationOutputSchema,
-  outputSchema: agentResultSchema,
-  execute: async ({ inputData, mastra, getInitData }) => {
-    const initData = getInitData<{ message: string }>();
-    const query =
-      inputData.queries["google-search"] || initData?.message || "";
+    // source: 1개면 해당 MCP ID, 2개+면 "multi-agent"
+    const sourceLabel =
+      activeTargets.length === 1 ? activeTargets[0] : "multi-agent";
 
     try {
-      const agent = mastra!.getAgent("googleSearchAgent");
-      const result = await agent.generate(query);
-      return {
-        source: "google-search",
-        content: result.text,
-        success: true,
-      };
+      if (
+        activeTargets.length === 1 ||
+        inputData.executionMode === "sequential"
+      ) {
+        // single agent 또는 순차 호출
+        // single일 때는 loop 1회로 동일 로직
+        let previousResult = "";
+        const allResults: string[] = [];
+
+        for (const target of activeTargets) {
+          const entry = getRegistryEntry(target);
+          if (!entry) continue;
+
+          const agent = mastra!.getAgent(entry.agentId);
+          const toolsets = await mcpConnectionManager.getToolsets(target);
+
+          // queries 값이 string이면 기본 쿼리, object이면 SequentialQuery
+          const rawQuery = inputData.queries[target];
+          const queryPlan: SequentialQuery =
+            typeof rawQuery === "object" && rawQuery !== null
+              ? (rawQuery as SequentialQuery)
+              : { query: (rawQuery as string) || userMessage, goal: "" };
+
+          let prompt: string;
+          if (previousResult && queryPlan.contextHint) {
+            // 구조화된 컨텍스트 전달: goal + contextHint로 이전 결과 프레이밍
+            prompt = `## 목표\n${queryPlan.goal}\n\n## 이전 단계 결과\n(참고할 정보: ${queryPlan.contextHint})\n${previousResult}\n\n## 요청\n${queryPlan.query}`;
+          } else if (previousResult) {
+            // 폴백: contextHint 없이 전체 결과 전달
+            prompt = queryPlan.goal
+              ? `## 목표\n${queryPlan.goal}\n\n${queryPlan.query}\n\n이전 Agent 결과:\n${previousResult}`
+              : `${queryPlan.query}\n\n이전 Agent 결과:\n${previousResult}`;
+          } else {
+            // 첫 번째 단계
+            prompt = queryPlan.goal
+              ? `## 목표\n${queryPlan.goal}\n\n## 요청\n${queryPlan.query}`
+              : queryPlan.query;
+          }
+
+          const result = await agent.generate(prompt, { toolsets });
+          previousResult = result.text;
+          allResults.push(
+            activeTargets.length === 1
+              ? result.text
+              : `[${entry.name}]\n${result.text}`,
+          );
+        }
+
+        const merged = allResults.join("\n\n---\n\n");
+        return {
+          source: sourceLabel,
+          content: merged || "결과를 생성하지 못했습니다.",
+          success: merged.length > 0,
+        };
+      } else {
+        // 병렬 호출
+        const results = await Promise.all(
+          activeTargets.map(async (target) => {
+            const entry = getRegistryEntry(target);
+            if (!entry) return null;
+
+            try {
+              const agent = mastra!.getAgent(entry.agentId);
+              const toolsets =
+                await mcpConnectionManager.getToolsets(target);
+              const rawQuery = inputData.queries[target];
+              const query =
+                typeof rawQuery === "object" && rawQuery !== null
+                  ? (rawQuery as SequentialQuery).query
+                  : (rawQuery as string) || userMessage;
+              const result = await agent.generate(query, { toolsets });
+              return `[${entry.name}]\n${result.text}`;
+            } catch (error) {
+              return `[${entry.name}]\n오류: ${error instanceof Error ? error.message : String(error)}`;
+            }
+          }),
+        );
+
+        const merged = results.filter(Boolean).join("\n\n---\n\n");
+        return {
+          source: sourceLabel,
+          content: merged || "결과를 생성하지 못했습니다.",
+          success: merged.length > 0,
+        };
+      }
     } catch (error) {
       return {
-        source: "google-search",
-        content: `Google Search Agent 오류: ${error instanceof Error ? error.message : String(error)}`,
-        success: false,
-      };
-    }
-  },
-});
-
-/**
- * DataHub Agent Step (datahub 분기)
- * 데이터 카탈로그 조회 전문
- */
-export const datahubAgentStep = createStep({
-  id: "datahub-agent-step",
-  inputSchema: classificationOutputSchema,
-  outputSchema: agentResultSchema,
-  execute: async ({ inputData, mastra, getInitData }) => {
-    const initData = getInitData<{ message: string }>();
-    const query =
-      inputData.queries["datahub"] || initData?.message || "";
-
-    try {
-      const agent = mastra!.getAgent("dataHubAgent");
-      const result = await agent.generate(query);
-      return { source: "datahub", content: result.text, success: true };
-    } catch (error) {
-      return {
-        source: "datahub",
-        content: `DataHub Agent 오류: ${error instanceof Error ? error.message : String(error)}`,
-        success: false,
-      };
-    }
-  },
-});
-
-/**
- * Multi-Agent 병렬 실행용 Steps
- * .parallel() 내부에서 사용되며, targets에 포함되지 않으면 빈 결과 반환
- */
-export const parallelAtlassianStep = createStep({
-  id: "parallel-atlassian",
-  inputSchema: classificationOutputSchema,
-  outputSchema: agentResultSchema,
-  execute: async ({ inputData, mastra, getInitData }) => {
-    if (!inputData.targets.includes("atlassian")) {
-      return { source: "atlassian", content: "", success: false };
-    }
-    const initData = getInitData<{ message: string }>();
-    const query =
-      inputData.queries["atlassian"] || initData?.message || "";
-
-    try {
-      const agent = mastra!.getAgent("atlassianAgent");
-      const result = await agent.generate(query);
-      return { source: "atlassian", content: result.text, success: true };
-    } catch (error) {
-      return {
-        source: "atlassian",
-        content: `Atlassian Agent 오류: ${error instanceof Error ? error.message : String(error)}`,
-        success: false,
-      };
-    }
-  },
-});
-
-export const parallelGoogleSearchStep = createStep({
-  id: "parallel-google-search",
-  inputSchema: classificationOutputSchema,
-  outputSchema: agentResultSchema,
-  execute: async ({ inputData, mastra, getInitData }) => {
-    if (!inputData.targets.includes("google-search")) {
-      return { source: "google-search", content: "", success: false };
-    }
-    const initData = getInitData<{ message: string }>();
-    const query =
-      inputData.queries["google-search"] || initData?.message || "";
-
-    try {
-      const agent = mastra!.getAgent("googleSearchAgent");
-      const result = await agent.generate(query);
-      return {
-        source: "google-search",
-        content: result.text,
-        success: true,
-      };
-    } catch (error) {
-      return {
-        source: "google-search",
-        content: `Google Search Agent 오류: ${error instanceof Error ? error.message : String(error)}`,
-        success: false,
-      };
-    }
-  },
-});
-
-export const parallelDatahubStep = createStep({
-  id: "parallel-datahub",
-  inputSchema: classificationOutputSchema,
-  outputSchema: agentResultSchema,
-  execute: async ({ inputData, mastra, getInitData }) => {
-    if (!inputData.targets.includes("datahub")) {
-      return { source: "datahub", content: "", success: false };
-    }
-    const initData = getInitData<{ message: string }>();
-    const query =
-      inputData.queries["datahub"] || initData?.message || "";
-
-    try {
-      const agent = mastra!.getAgent("dataHubAgent");
-      const result = await agent.generate(query);
-      return { source: "datahub", content: result.text, success: true };
-    } catch (error) {
-      return {
-        source: "datahub",
-        content: `DataHub Agent 오류: ${error instanceof Error ? error.message : String(error)}`,
+        source: sourceLabel,
+        content: `Agent 오류: ${error instanceof Error ? error.message : String(error)}`,
         success: false,
       };
     }

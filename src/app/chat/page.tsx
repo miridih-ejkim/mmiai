@@ -23,20 +23,40 @@ interface ChatMessage {
   content: string;
 }
 
+/** HITL 선택지 */
+interface SuspendOption {
+  value: 'refine' | 'reroute' | 'new';
+  label: string;
+}
+
+/** reroute 가능한 Agent */
+interface AvailableAgent {
+  value: string;
+  label: string;
+}
+
 /** Suspend 상태 (HITL 피드백 대기) */
 interface SuspendState {
   runId: string;
   reason: string;
   score: number;
   originalSource: string;
+  originalMessage: string;
+  options: SuspendOption[];
+  availableAgents: AvailableAgent[];
 }
+
+type ActionType = 'refine' | 'reroute' | 'new';
 
 function Chat() {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [suspendState, setSuspendState] = useState<SuspendState | null>(null);
+  const [selectedAction, setSelectedAction] = useState<ActionType>('refine');
+  const [selectedAgent, setSelectedAgent] = useState('');
   const msgIdRef = useRef(0);
+  const lastUserMessageRef = useRef('');
 
   const nextId = () => String(++msgIdRef.current);
 
@@ -52,38 +72,45 @@ function Chat() {
     async (body: Record<string, unknown>) => {
       setIsLoading(true);
       try {
+        // userId를 모든 요청에 포함 (향후 auth 연동 시 교체)
+        const userId = typeof window !== 'undefined'
+          ? localStorage.getItem('mmiai-user-id') || 'default-user'
+          : 'default-user';
         const res = await fetch('/mastra/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ ...body, userId }),
         });
         const data = await res.json();
 
         if (data.status === 'suspended') {
-          // HITL: 품질 검증 실패 → 피드백 요청
           setSuspendState({
             runId: data.runId,
             reason: data.reason,
             score: data.score,
             originalSource: data.originalSource,
+            originalMessage: lastUserMessageRef.current,
+            options: data.options || [],
+            availableAgents: data.availableAgents || [],
           });
+          setSelectedAction('refine');
+          setSelectedAgent(data.availableAgents?.[0]?.value || '');
           setMessages((prev) => [
             ...prev,
             {
               id: nextId(),
               role: 'system',
-              content: `⚠️ ${data.reason}\n추가 지시나 수정된 질문을 입력해주세요.`,
+              content: `\u26a0\ufe0f ${data.reason}\n\uc544\ub798\uc5d0\uc11c \ub2e4\uc74c \uc561\uc158\uc744 \uc120\ud0dd\ud574\uc8fc\uc138\uc694.`,
             },
           ]);
         } else {
-          // 정상 응답
           setSuspendState(null);
           setMessages((prev) => [
             ...prev,
             {
               id: nextId(),
               role: 'assistant',
-              content: data.response || '응답을 생성하지 못했습니다.',
+              content: data.response || '\uc751\ub2f5\uc744 \uc0dd\uc131\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4.',
             },
           ]);
         }
@@ -93,7 +120,7 @@ function Chat() {
           {
             id: nextId(),
             role: 'system',
-            content: `오류가 발생했습니다: ${error instanceof Error ? error.message : '알 수 없는 오류'}`,
+            content: `\uc624\ub958\uac00 \ubc1c\uc0dd\ud588\uc2b5\ub2c8\ub2e4: ${error instanceof Error ? error.message : '\uc54c \uc218 \uc5c6\ub294 \uc624\ub958'}`,
           },
         ]);
         setSuspendState(null);
@@ -110,24 +137,42 @@ function Chat() {
     const userText = input.trim();
     setInput('');
 
-    // 사용자 메시지 추가
     setMessages((prev) => [
       ...prev,
       { id: nextId(), role: 'user', content: userText },
     ]);
 
     if (suspendState) {
-      // Resume: 사용자 피드백으로 suspended 워크플로우 재개
-      await sendToWorkflow({
-        runId: suspendState.runId,
-        resumeData: { userFeedback: userText },
-      });
+      if (selectedAction === 'new') {
+        // 새 질문: 새 workflow 시작
+        lastUserMessageRef.current = userText;
+        setSuspendState(null);
+        await sendToWorkflow({ inputData: { message: userText } });
+      } else if (selectedAction === 'reroute') {
+        // 다른 Agent로 전환: resume으로 quality-check에서 targetAgent 호출
+        await sendToWorkflow({
+          runId: suspendState.runId,
+          resumeData: { action: 'reroute', targetAgent: selectedAgent, userFeedback: userText || undefined },
+        });
+      } else {
+        // 보완 지시: resume으로 같은 Agent + 원본 질문 + 피드백
+        await sendToWorkflow({
+          runId: suspendState.runId,
+          resumeData: { action: 'refine', userFeedback: userText },
+        });
+      }
     } else {
-      // New: 새 워크플로우 실행
+      lastUserMessageRef.current = userText;
       await sendToWorkflow({
         inputData: { message: userText },
       });
     }
+  };
+
+  const placeholderByAction: Record<ActionType, string> = {
+    refine: '\ucd94\uac00 \uc9c0\uc2dc\ub97c \uc785\ub825\ud558\uc138\uc694 (\uc608: "\ub354 \uc790\uc138\ud788 \uac80\uc0c9\ud574\uc918")',
+    reroute: '\ucd94\uac00 \uc9c0\uc2dc\ub97c \uc785\ub825\ud558\uac70\ub098 \ube48 \uce78\uc73c\ub85c \uc804\uc1a1\ud558\uc138\uc694',
+    new: '\uc0c8\ub85c\uc6b4 \uc9c8\ubb38\uc744 \uc785\ub825\ud558\uc138\uc694',
   };
 
   return (
@@ -146,6 +191,55 @@ function Chat() {
           </ConversationContent>
         </Conversation>
 
+        {/* HITL 선택지 패널 */}
+        {suspendState && suspendState.options.length > 0 && (
+          <div className="mx-auto w-full max-w-2xl rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-4 mb-3">
+            <div className="space-y-3">
+              {suspendState.options.map((option) => (
+                <label
+                  key={option.value}
+                  className={`flex items-start gap-3 rounded-md border p-3 cursor-pointer transition-colors ${
+                    selectedAction === option.value
+                      ? 'border-yellow-500 bg-yellow-500/10'
+                      : 'border-transparent hover:bg-white/5'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="hitl-action"
+                    value={option.value}
+                    checked={selectedAction === option.value}
+                    onChange={(e) => setSelectedAction(e.target.value as ActionType)}
+                    className="mt-0.5 accent-yellow-500"
+                  />
+                  <div className="flex-1">
+                    <span className="text-sm font-medium">{option.label}</span>
+                    {/* reroute 선택 시 Agent 선택 */}
+                    {option.value === 'reroute' && selectedAction === 'reroute' && (
+                      <div className="mt-2 flex gap-2 flex-wrap">
+                        {suspendState.availableAgents.map((agent) => (
+                          <button
+                            key={agent.value}
+                            type="button"
+                            onClick={() => setSelectedAgent(agent.value)}
+                            className={`rounded-full px-3 py-1 text-xs transition-colors ${
+                              selectedAgent === agent.value
+                                ? 'bg-yellow-500 text-black'
+                                : 'bg-white/10 hover:bg-white/20'
+                            }`}
+                          >
+                            {agent.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
         <PromptInput onSubmit={handleSubmit} className="mt-20">
           <PromptInputBody>
             <PromptInputTextarea
@@ -154,7 +248,7 @@ function Chat() {
               value={input}
               placeholder={
                 suspendState
-                  ? '추가 지시나 수정된 질문을 입력하세요...'
+                  ? placeholderByAction[selectedAction]
                   : 'Type your message...'
               }
               disabled={isLoading}
