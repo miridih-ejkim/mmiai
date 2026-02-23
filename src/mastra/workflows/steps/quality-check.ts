@@ -56,8 +56,8 @@ function computeQualityScore(
   return Math.min(score, 1);
 }
 
-/** Quality Check 임계값 (HITL 테스트: 0.95, 운영: 0.3) */
-const QUALITY_THRESHOLD = 0.95;
+/** Quality Check 임계값 */
+const QUALITY_THRESHOLD = 0.3;
 
 /** suspend 시 사용자에게 제공할 선택지 */
 const SUSPEND_OPTIONS = [
@@ -150,12 +150,14 @@ export const qualityCheckStep = createStep({
 
       if (resumeData.action === "refine") {
         // 같은 Agent + 원본 질문 + 피드백 결합
-        const agentId = getRegistryEntry(inputData.source)?.agentId;
+        const refineEntry = getRegistryEntry(inputData.source);
+        const agentId = refineEntry?.agentId;
         if (agentId) {
           try {
             const agent = mastra!.getAgent(agentId);
+            const mcpId = refineEntry?.mcpId || inputData.source;
             const toolsets = await mcpConnectionManager.getToolsets(
-              inputData.source,
+              mcpId,
             );
             const prompt = originalMessage
               ? `원본 질문: ${originalMessage}\n\n추가 지시: ${feedback}`
@@ -180,12 +182,15 @@ export const qualityCheckStep = createStep({
 
       if (resumeData.action === "reroute" && resumeData.targetAgent) {
         // 다른 Agent로 전환
-        const agentId = getRegistryEntry(resumeData.targetAgent)?.agentId;
+        const rerouteEntry = getRegistryEntry(resumeData.targetAgent);
+        const agentId = rerouteEntry?.agentId;
         if (agentId) {
           try {
             const agent = mastra!.getAgent(agentId);
+            const mcpId =
+              rerouteEntry?.mcpId || resumeData.targetAgent;
             const toolsets = await mcpConnectionManager.getToolsets(
-              resumeData.targetAgent,
+              mcpId,
             );
             const prompt = feedback
               ? `${originalMessage}\n\n추가 지시: ${feedback}`
