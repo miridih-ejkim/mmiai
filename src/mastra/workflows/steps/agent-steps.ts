@@ -89,7 +89,8 @@ export const agentStep = createStep({
           if (!entry) continue;
 
           const agent = mastra!.getAgent(entry.agentId);
-          const toolsets = await mcpConnectionManager.getToolsets(target);
+          const mcpId = entry.mcpId || target;
+          const toolsets = await mcpConnectionManager.getToolsets(mcpId);
 
           // queries 값이 string이면 기본 쿼리, object이면 SequentialQuery
           const rawQuery = inputData.queries[target];
@@ -138,8 +139,9 @@ export const agentStep = createStep({
 
             try {
               const agent = mastra!.getAgent(entry.agentId);
+              const mcpId = entry.mcpId || target;
               const toolsets =
-                await mcpConnectionManager.getToolsets(target);
+                await mcpConnectionManager.getToolsets(mcpId);
               const rawQuery = inputData.queries[target];
               const query =
                 typeof rawQuery === "object" && rawQuery !== null

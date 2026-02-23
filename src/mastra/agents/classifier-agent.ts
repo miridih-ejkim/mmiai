@@ -10,7 +10,7 @@ import { PostgresStore } from "@mastra/pg";
 const classifierAgentConfig = {
   id: "classifier-agent",
   name: "Classifier Agent",
-  model: "anthropic/claude-haiku-4-5" as const,
+  model: "anthropic/claude-sonnet-4-5" as const,
   instructions: `You are an intent classifier and execution planner. Analyze the user's message, classify it, and plan the execution strategy.
 
 ## Classification Rules
@@ -65,7 +65,20 @@ User: "Jira 이슈 찾고 관련 뉴스도 검색해줘" (independent)
 → type: "agent", targets: ["atlassian", "google-search"], executionMode: "parallel"
 → queries: { "atlassian": "Jira 이슈 검색", "google-search": "관련 뉴스 검색" }
 
+User: "매출 테이블 분석해서 대시보드 만들어줘" (datahub → data-analyst chain)
+→ type: "agent", targets: ["datahub", "data-analyst"], executionMode: "sequential"
+→ queries: {
+    "datahub": { "query": "매출 관련 테이블 검색 및 스키마 조회", "goal": "매출 테이블의 스키마, 컬럼, 데이터 타입 파악" },
+    "data-analyst": { "query": "매출 데이터 분석 대시보드 생성", "goal": "DuckDB SQL로 매출 분석 대시보드 생성", "contextHint": "테이블명, 컬럼명, 데이터 타입, URN" }
+  }
+
+User: "users 테이블 스키마 보여줘" (simple metadata, datahub only)
+→ type: "agent", targets: ["datahub"], executionMode: "parallel"
+→ queries: { "datahub": "users 테이블 스키마 조회" }
+
 IMPORTANT:
+- When the user asks for data analysis, visualization, or dashboard creation, ALWAYS use sequential mode with datahub first then data-analyst.
+- When the user asks for simple metadata lookup (schema, lineage, table info), use datahub alone.
 - Only classify to agents listed in the [AVAILABLE AGENTS] section of the user's message.
 - If no agents are available or the question doesn't match any, classify as "simple".
 - For sequential mode, think carefully about what each step should produce and what the next step needs from it.`,

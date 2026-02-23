@@ -117,8 +117,19 @@ ${activeAgentDescriptions || "(none — classify as simple)"}
 
 IMPORTANT: You may ONLY route to agents listed above. If no agents are available, classify as "simple".`;
 
+    // Memory 연동: userId(resource) + threadId(thread)로 대화 맥락 유지
+    const userId =
+      (requestContext?.get("userId") as string | undefined) || "default-user";
+    const threadId =
+      (requestContext?.get("threadId") as string | undefined) ||
+      "default-thread";
+
     const classifier = mastra!.getAgent("classifierAgent");
     const result = await classifier.generate(dynamicPrompt, {
+      memory: {
+        resource: userId,
+        thread: threadId,
+      },
       structuredOutput: {
         schema: classificationOutputSchema,
       },

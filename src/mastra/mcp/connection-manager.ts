@@ -53,6 +53,11 @@ export class McpConnectionManager {
       return {};
     }
 
+    // MCP 서버가 없는 엔트리 (빌트인 도구만 사용, e.g. data-analyst)
+    if (!entry.buildServerDef() && !entry.requiresFallback) {
+      return {};
+    }
+
     // DataHub fallback 경로
     if (entry.requiresFallback) {
       return this.getFallbackToolsets(mcpId);
@@ -127,9 +132,7 @@ export class McpConnectionManager {
   ): Promise<Record<string, any>> {
     const serverDef = entry.buildServerDef();
     if (!serverDef) {
-      console.warn(
-        `[McpConnectionManager] ${mcpId} server not configured (env missing)`,
-      );
+      // buildServerDef() → null: MCP 서버 없음 (env 미설정 또는 빌트인 도구 전용)
       return {};
     }
 
@@ -177,11 +180,12 @@ export class McpConnectionManager {
     try {
       const { tools, cleanup } = await createDatahubFallbackTools();
 
-      // createTool로 만든 도구를 toolsets 형식으로 변환
-      // listToolsets()는 { "serverName.toolName": tool } 형식을 반환하지만
-      // fallback 도구는 이미 { "datahub_search": tool } 형식이므로 그대로 사용
+      // MCPClient.listToolsets()는 { serverName: { toolName: tool } } 이중 중첩 형식
+      // agent.generate(prompt, { toolsets })에서 Object.values()로 toolset 순회 후
+      // Object.entries()로 도구를 등록하므로 동일한 이중 중첩 구조 필요
+      const wrapped = { [mcpId]: tools };
       this.fallbackCache = {
-        toolsets: tools,
+        toolsets: wrapped,
         cleanup,
         lastUsed: Date.now(),
       };
@@ -189,7 +193,7 @@ export class McpConnectionManager {
       console.log(
         `[McpConnectionManager] DataHub fallback tools loaded (${Object.keys(tools).length} tools)`,
       );
-      return tools;
+      return wrapped;
     } catch (error) {
       console.error(
         `[McpConnectionManager] Failed to load DataHub fallback tools:`,

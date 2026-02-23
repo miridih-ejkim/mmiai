@@ -57,6 +57,16 @@ function Chat() {
   const [selectedAgent, setSelectedAgent] = useState('');
   const msgIdRef = useRef(0);
   const lastUserMessageRef = useRef('');
+  // 세션 단위 threadId (탭/페이지 단위로 대화 분리)
+  const threadIdRef = useRef(
+    typeof window !== 'undefined'
+      ? sessionStorage.getItem('mmiai-thread-id') || (() => {
+          const id = `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          sessionStorage.setItem('mmiai-thread-id', id);
+          return id;
+        })()
+      : `thread-${Date.now()}`,
+  );
 
   const nextId = () => String(++msgIdRef.current);
 
@@ -79,8 +89,21 @@ function Chat() {
         const res = await fetch('/mastra/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...body, userId }),
+          body: JSON.stringify({ ...body, userId, threadId: threadIdRef.current }),
         });
+
+        if (!res.ok) {
+          const text = await res.text();
+          let errorMsg: string;
+          try {
+            const errJson = JSON.parse(text);
+            errorMsg = errJson.error || errJson.message || text;
+          } catch {
+            errorMsg = text || `서버 오류 (${res.status})`;
+          }
+          throw new Error(errorMsg);
+        }
+
         const data = await res.json();
 
         if (data.status === 'suspended') {
