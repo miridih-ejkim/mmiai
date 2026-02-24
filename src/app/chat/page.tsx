@@ -23,10 +23,13 @@ interface ChatMessage {
   content: string;
 }
 
-/** HITL 선택지 */
-interface SuspendOption {
-  value: 'refine' | 'reroute' | 'new';
-  label: string;
+/** AI가 생성한 개선 제안 */
+interface HitlSuggestion {
+  id: string;
+  description: string;
+  actionType: 'refine' | 'reroute';
+  refinedQuery?: string;
+  targetAgent?: string;
 }
 
 /** reroute 가능한 Agent */
@@ -42,19 +45,16 @@ interface SuspendState {
   score: number;
   originalSource: string;
   originalMessage: string;
-  options: SuspendOption[];
+  originalQuery: string;
+  suggestions: HitlSuggestion[];
   availableAgents: AvailableAgent[];
 }
-
-type ActionType = 'refine' | 'reroute' | 'new';
 
 function Chat() {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [suspendState, setSuspendState] = useState<SuspendState | null>(null);
-  const [selectedAction, setSelectedAction] = useState<ActionType>('refine');
-  const [selectedAgent, setSelectedAgent] = useState('');
   const msgIdRef = useRef(0);
   const lastUserMessageRef = useRef('');
   // 세션 단위 threadId (탭/페이지 단위로 대화 분리)
@@ -82,7 +82,6 @@ function Chat() {
     async (body: Record<string, unknown>) => {
       setIsLoading(true);
       try {
-        // userId를 모든 요청에 포함 (향후 auth 연동 시 교체)
         const userId = typeof window !== 'undefined'
           ? localStorage.getItem('mmiai-user-id') || 'default-user'
           : 'default-user';
@@ -113,17 +112,16 @@ function Chat() {
             score: data.score,
             originalSource: data.originalSource,
             originalMessage: lastUserMessageRef.current,
-            options: data.options || [],
+            originalQuery: data.originalQuery || lastUserMessageRef.current,
+            suggestions: data.suggestions || [],
             availableAgents: data.availableAgents || [],
           });
-          setSelectedAction('refine');
-          setSelectedAgent(data.availableAgents?.[0]?.value || '');
           setMessages((prev) => [
             ...prev,
             {
               id: nextId(),
               role: 'system',
-              content: `\u26a0\ufe0f ${data.reason}\n\uc544\ub798\uc5d0\uc11c \ub2e4\uc74c \uc561\uc158\uc744 \uc120\ud0dd\ud574\uc8fc\uc138\uc694.`,
+              content: `\u26a0\ufe0f ${data.reason}\n\uc544\ub798\uc5d0\uc11c \uac1c\uc120 \ubc29\ubc95\uc744 \uc120\ud0dd\ud558\uac70\ub098 \uc9c1\uc811 \uc785\ub825\ud574\uc8fc\uc138\uc694.`,
             },
           ]);
         } else {
@@ -154,48 +152,78 @@ function Chat() {
     [],
   );
 
+  /** AI 제안 카드 클릭 */
+  const handleSuggestionClick = useCallback(
+    async (suggestion: HitlSuggestion) => {
+      if (!suspendState || isLoading) return;
+
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), role: 'user', content: suggestion.description },
+      ]);
+
+      await sendToWorkflow({
+        runId: suspendState.runId,
+        resumeData: {
+          action: 'suggestion',
+          suggestionId: suggestion.id,
+          refinedQuery: suggestion.refinedQuery,
+          targetAgent: suggestion.targetAgent,
+        },
+      });
+    },
+    [suspendState, isLoading, sendToWorkflow],
+  );
+
+  /** 워크플로우 종료 (bail) */
+  const handleDismiss = useCallback(async () => {
+    if (!suspendState || isLoading) return;
+
+    setMessages((prev) => [
+      ...prev,
+      { id: nextId(), role: 'system', content: '\uc6cc\ud06c\ud50c\ub85c\uc6b0\uac00 \uc885\ub8cc\ub418\uc5c8\uc2b5\ub2c8\ub2e4.' },
+    ]);
+
+    await sendToWorkflow({
+      runId: suspendState.runId,
+      resumeData: { action: 'dismiss' },
+    });
+
+    setSuspendState(null);
+  }, [suspendState, isLoading, sendToWorkflow]);
+
+  /** 텍스트 입력 후 submit */
   const handleSubmit = async () => {
-    if (!input.trim() || isLoading) return;
+    if (isLoading) return;
 
     const userText = input.trim();
     setInput('');
 
-    setMessages((prev) => [
-      ...prev,
-      { id: nextId(), role: 'user', content: userText },
-    ]);
-
     if (suspendState) {
-      if (selectedAction === 'new') {
-        // 새 질문: 새 workflow 시작
-        lastUserMessageRef.current = userText;
-        setSuspendState(null);
-        await sendToWorkflow({ inputData: { message: userText } });
-      } else if (selectedAction === 'reroute') {
-        // 다른 Agent로 전환: resume으로 quality-check에서 targetAgent 호출
-        await sendToWorkflow({
-          runId: suspendState.runId,
-          resumeData: { action: 'reroute', targetAgent: selectedAgent, userFeedback: userText || undefined },
-        });
-      } else {
-        // 보완 지시: resume으로 같은 Agent + 원본 질문 + 피드백
-        await sendToWorkflow({
-          runId: suspendState.runId,
-          resumeData: { action: 'refine', userFeedback: userText },
-        });
-      }
+      // HITL 모드: 텍스트 입력 시 refine (같은 Agent + 추가 지시)
+      if (!userText) return;
+
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), role: 'user', content: userText },
+      ]);
+
+      await sendToWorkflow({
+        runId: suspendState.runId,
+        resumeData: { action: 'refine', userFeedback: userText },
+      });
     } else {
+      // 일반 모드
+      if (!userText) return;
       lastUserMessageRef.current = userText;
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), role: 'user', content: userText },
+      ]);
       await sendToWorkflow({
         inputData: { message: userText },
       });
     }
-  };
-
-  const placeholderByAction: Record<ActionType, string> = {
-    refine: '\ucd94\uac00 \uc9c0\uc2dc\ub97c \uc785\ub825\ud558\uc138\uc694 (\uc608: "\ub354 \uc790\uc138\ud788 \uac80\uc0c9\ud574\uc918")',
-    reroute: '\ucd94\uac00 \uc9c0\uc2dc\ub97c \uc785\ub825\ud558\uac70\ub098 \ube48 \uce78\uc73c\ub85c \uc804\uc1a1\ud558\uc138\uc694',
-    new: '\uc0c8\ub85c\uc6b4 \uc9c8\ubb38\uc744 \uc785\ub825\ud558\uc138\uc694',
   };
 
   return (
@@ -214,51 +242,84 @@ function Chat() {
           </ConversationContent>
         </Conversation>
 
-        {/* HITL 선택지 패널 */}
-        {suspendState && suspendState.options.length > 0 && (
+        {/* HITL 제안 패널 */}
+        {suspendState && (
           <div className="mx-auto w-full max-w-2xl rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-4 mb-3">
-            <div className="space-y-3">
-              {suspendState.options.map((option) => (
-                <label
-                  key={option.value}
-                  className={`flex items-start gap-3 rounded-md border p-3 cursor-pointer transition-colors ${
-                    selectedAction === option.value
-                      ? 'border-yellow-500 bg-yellow-500/10'
-                      : 'border-transparent hover:bg-white/5'
-                  }`}
+            <p className="text-sm text-yellow-200/80 mb-3">
+              AI가 다음과 같은 개선 방법을 제안합니다:
+            </p>
+
+            {/* AI 제안 카드 */}
+            <div className="space-y-2 mb-3">
+              {suspendState.suggestions.map((suggestion) => (
+                <button
+                  key={suggestion.id}
+                  type="button"
+                  onClick={() => handleSuggestionClick(suggestion)}
+                  disabled={isLoading}
+                  className="w-full text-left rounded-md border border-white/10 p-3
+                             hover:bg-white/5 hover:border-yellow-500/50 transition-colors
+                             cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <input
-                    type="radio"
-                    name="hitl-action"
-                    value={option.value}
-                    checked={selectedAction === option.value}
-                    onChange={(e) => setSelectedAction(e.target.value as ActionType)}
-                    className="mt-0.5 accent-yellow-500"
-                  />
-                  <div className="flex-1">
-                    <span className="text-sm font-medium">{option.label}</span>
-                    {/* reroute 선택 시 Agent 선택 */}
-                    {option.value === 'reroute' && selectedAction === 'reroute' && (
-                      <div className="mt-2 flex gap-2 flex-wrap">
-                        {suspendState.availableAgents.map((agent) => (
-                          <button
-                            key={agent.value}
-                            type="button"
-                            onClick={() => setSelectedAgent(agent.value)}
-                            className={`rounded-full px-3 py-1 text-xs transition-colors ${
-                              selectedAgent === agent.value
-                                ? 'bg-yellow-500 text-black'
-                                : 'bg-white/10 hover:bg-white/20'
-                            }`}
-                          >
-                            {agent.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                  <div className="flex items-start gap-2">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-white/10 shrink-0 mt-0.5">
+                      {suggestion.actionType === 'refine' ? '\uD83D\uDD04 \ubcf4\uc644' : '\uD83D\uDD00 \uc804\ud658'}
+                    </span>
+                    <span className="text-sm">{suggestion.description}</span>
                   </div>
-                </label>
+                </button>
               ))}
+            </div>
+
+            {/* 수동 옵션 (접기) */}
+            <details className="text-xs text-white/50">
+              <summary className="cursor-pointer hover:text-white/70 mb-2">
+                직접 입력하기
+              </summary>
+              <div className="space-y-2">
+                {suspendState.availableAgents.length > 0 && (
+                  <div className="flex gap-2 flex-wrap">
+                    {suspendState.availableAgents.map((agent) => (
+                      <button
+                        key={agent.value}
+                        type="button"
+                        disabled={isLoading}
+                        onClick={async () => {
+                          if (!suspendState || isLoading) return;
+                          setMessages((prev) => [
+                            ...prev,
+                            { id: nextId(), role: 'user', content: `${agent.label}(으)로 전환합니다.` },
+                          ]);
+                          await sendToWorkflow({
+                            runId: suspendState.runId,
+                            resumeData: { action: 'reroute', targetAgent: agent.value },
+                          });
+                        }}
+                        className="rounded-full px-3 py-1 text-xs bg-white/10 hover:bg-white/20
+                                   disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {agent.label}(으)로 전환
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <p className="text-white/40">
+                  텍스트를 입력하고 전송하면 같은 Agent에 추가 지시를 보냅니다.
+                </p>
+              </div>
+            </details>
+
+            {/* Dismiss 버튼 */}
+            <div className="mt-3 pt-3 border-t border-white/10">
+              <button
+                type="button"
+                onClick={handleDismiss}
+                disabled={isLoading}
+                className="text-xs text-white/40 hover:text-white/60 transition-colors
+                           disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                \u2715 검색을 종료합니다
+              </button>
             </div>
           </div>
         )}
@@ -271,7 +332,7 @@ function Chat() {
               value={input}
               placeholder={
                 suspendState
-                  ? placeholderByAction[selectedAction]
+                  ? '추가 지시를 입력하거나 위 제안을 클릭하세요'
                   : 'Type your message...'
               }
               disabled={isLoading}

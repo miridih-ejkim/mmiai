@@ -143,7 +143,7 @@ export async function initializeMastra(): Promise<{
                 });
               }
 
-              // Suspended → 선택지 포함 응답
+              // Suspended → AI 제안 포함 응답
               if (result.status === "suspended") {
                 const suspendPayload =
                   result.steps?.["quality-check"]?.suspendPayload as
@@ -151,7 +151,14 @@ export async function initializeMastra(): Promise<{
                         reason?: string;
                         score?: number;
                         originalSource?: string;
-                        options?: Array<{ value: string; label: string }>;
+                        originalQuery?: string;
+                        suggestions?: Array<{
+                          id: string;
+                          description: string;
+                          actionType: string;
+                          refinedQuery?: string;
+                          targetAgent?: string;
+                        }>;
                         availableAgents?: Array<{
                           value: string;
                           label: string;
@@ -165,15 +172,44 @@ export async function initializeMastra(): Promise<{
                   score: suspendPayload?.score ?? 0,
                   originalSource:
                     suspendPayload?.originalSource || "unknown",
-                  options: suspendPayload?.options || [],
+                  originalQuery: suspendPayload?.originalQuery || "",
+                  suggestions: suspendPayload?.suggestions || [],
                   availableAgents: suspendPayload?.availableAgents || [],
                 });
               }
 
-              // Completed → 응답 반환
+              // Completed → classifier memory에 최종 응답 기록 (다음 대화 맥락 유지)
+              const responseText =
+                result.result?.response ||
+                "워크플로우가 종료되었습니다.";
+
+              try {
+                const classifier = mastra.getAgent("classifierAgent") as any;
+                const memory = await classifier.getMemory();
+                if (memory) {
+                  await memory.saveMessages({
+                    messages: [
+                      {
+                        id: `resp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                        role: "assistant" as const,
+                        createdAt: new Date(),
+                        threadId,
+                        resourceId: userId,
+                        content: {
+                          format: 2 as const,
+                          parts: [{ type: "text" as const, text: responseText }],
+                        },
+                      },
+                    ],
+                  });
+                }
+              } catch (memErr) {
+                console.warn("[/chat] Memory save failed:", memErr);
+              }
+
               return c.json({
                 status: "completed",
-                response: result.result?.response || "",
+                response: responseText,
               });
             } catch (error) {
               console.error("[/chat] Error:", error);
