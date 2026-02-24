@@ -45,6 +45,11 @@ export const shaperTool = createTool({
 SQL 쿼리를 API로 전송하면 시각화 대시보드 URL과 함께 실제 쿼리 결과 데이터(CSV)를 받습니다.
 데이터 분석 및 시각화가 필요할 때 사용하세요.
 
+**주의**
+- 조회 가능한 S3 경로는 's3://miridih-de-databricks-catalog' 버킷 내 경로로 제한됩니다.
+- 모든 데이터 경로는 's3://miridih-de-databricks-catalog' 하위의 bronze, silver, gold 디렉토리 내 경로로 제한됩니다.
+- 모든 S3 내 데이터는 delta lake 포맷이므로, delta_scan() 함수를 사용해 S3 경로를 전달해야 합니다.
+
 입력:
 - dashboardName: URL-safe 대시보드 이름 (영문, 숫자, 하이픈, 언더스코어)
 - sqlQuery: DuckDB SQL 쿼리
