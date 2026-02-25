@@ -31,7 +31,7 @@ export const classificationOutputSchema = z.object({
   type: z.enum(["simple", "agent"]),
   targets: z
     .array(z.string())
-    .describe("호출할 MCP ID 목록 (e.g., atlassian, google-search, datahub)"),
+    .describe("호출할 MCP ID 목록 ([AVAILABLE AGENTS]에서 선택)"),
   queries: z
     .record(z.string(), z.union([z.string(), sequentialQuerySchema]))
     .describe(

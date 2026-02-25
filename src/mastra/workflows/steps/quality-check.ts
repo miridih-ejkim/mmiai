@@ -7,6 +7,7 @@ import {
   getAllMcpIds,
   getRegistryEntry,
 } from "../../mcp";
+import { workflowStateSchema } from "../state";
 
 /** 최소 응답 길이 (이 이하면 품질 불충분으로 판단) */
 const MIN_CONTENT_LENGTH = 20;
@@ -57,7 +58,7 @@ function computeQualityScore(
 }
 
 /** Quality Check 임계값 */
-const QUALITY_THRESHOLD = 0.3;
+const QUALITY_THRESHOLD = 0.9;
 
 // ─── Suggestion Schema ───
 
@@ -125,6 +126,10 @@ async function generateSuggestions(params: {
   score: number;
   availableAgents: Array<{ value: string; label: string }>;
   mastra: any;
+  executionTargets: string[];
+  executionMode: string;
+  userId: string;
+  threadId: string;
 }): Promise<Suggestion[]> {
   const {
     userMessage,
@@ -133,6 +138,10 @@ async function generateSuggestions(params: {
     score,
     availableAgents,
     mastra,
+    executionTargets,
+    executionMode,
+    userId,
+    threadId,
   } = params;
 
   try {
@@ -145,25 +154,44 @@ async function generateSuggestions(params: {
             .join("\n")
         : "(없음)";
 
-    const prompt = `검색 결과의 품질이 낮습니다. 분석하고 구체적인 개선 방법을 2-3개 제안해주세요.
+    // 실행 파이프라인 설명 생성
+    const pipelineDesc =
+      executionTargets.length > 1
+        ? `${executionTargets.map((t) => {
+            const entry = getRegistryEntry(t);
+            return entry ? `"${t}" (${entry.name})` : `"${t}"`;
+          }).join(" → ")} [${executionMode} 모드]`
+        : executionTargets.length === 1
+          ? `"${executionTargets[0]}" (${getRegistryEntry(executionTargets[0])?.name || executionTargets[0]})`
+          : `"${source}"`;
+
+    const prompt = `Agent 실행 결과의 품질이 낮습니다. 결과를 분석하고 구체적인 개선 방법을 2-3개 제안해주세요.
 
 ## 맥락
 - 사용자 질문: "${userMessage}"
-- 사용한 Agent: "${source}"
+- 실행 파이프라인: ${pipelineDesc}
 - 품질 점수: ${score.toFixed(2)} / 1.00
-- 결과 내용 (일부): "${agentResult.slice(0, 500)}"
+- 실행 결과 (일부):
+${agentResult.slice(0, 800)}
 
 ## 대안 Agent 목록
 ${availableAgentList}
 
+## 분석 방법
+먼저 결과에서 실패 원인을 파악하세요:
+- Agent가 관련 데이터를 찾지 못했는가? (검색 키워드 문제)
+- 잘못된 테이블/컬럼을 참조했는가? (hallucination 문제)
+- 쿼리는 생성했지만 실행에 실패했는가? (SQL 오류)
+- 결과가 사용자 질문과 관련 없는가? (라우팅 문제)
+
 ## 규칙
 - 정확히 2-3개의 제안을 생성하세요.
 - 각 제안은 다음 중 하나:
-  1. "refine" — 같은 Agent에 개선된 검색어로 재시도 (refinedQuery에 개선된 쿼리 텍스트 필수)
+  1. "refine" — 같은 Agent 파이프라인에 개선된 지시로 재시도
+     - refinedQuery: 구체적인 개선 지시문을 작성하세요 (예: "template 키워드 대신 'tmpl' 또는 '템플릿'으로 검색", "status 컬럼으로 is_active = true 필터링")
+     - 단순히 "더 자세히 검색" 같은 모호한 지시가 아니라, 결과에서 발견한 문제를 해결하는 구체적 지시를 제시하세요
   2. "reroute" — 다른 Agent로 전환 (targetAgent에 위 목록의 Agent ID 필수, 목록이 없으면 reroute 제안 금지)
-- description은 한국어 1문장으로 간결하게 작성하세요.
-- refine 제안 시: 더 넓거나, 더 구체적이거나, 다른 키워드를 사용한 검색어를 제시하세요.
-- reroute 제안 시: 해당 Agent가 왜 더 나은 결과를 줄 수 있는지 설명하세요.
+- description은 한국어 1-2문장으로, **왜 이 제안이 문제를 해결하는지** 설명하세요
 - 각 제안의 id는 "suggest-1", "suggest-2" 등으로 지정하세요.`;
 
     const suggestionsResponseSchema = z.object({
@@ -172,6 +200,11 @@ ${availableAgentList}
 
     const result = await agent.generate(prompt, {
       structuredOutput: { schema: suggestionsResponseSchema },
+      memory: {
+        resource: userId,
+        thread: threadId,
+        options: { readOnly: true },
+      },
     });
 
     return (result.object as { suggestions: Suggestion[] }).suggestions;
@@ -213,6 +246,10 @@ async function buildSuspendPayload(
   activeMcpIds: string[],
   mastra: any,
   agentResult: string,
+  executionTargets: string[],
+  executionMode: string,
+  userId: string,
+  threadId: string,
 ) {
   const availableAgents = MCP_REGISTRY.filter(
     (entry) =>
@@ -226,6 +263,10 @@ async function buildSuspendPayload(
     score,
     availableAgents,
     mastra,
+    executionTargets,
+    executionMode,
+    userId,
+    threadId,
   });
 
   return {
@@ -290,6 +331,7 @@ export const qualityCheckStep = createStep({
   outputSchema: agentResultSchema,
   resumeSchema: resumeDataSchema,
   suspendSchema: suspendPayloadSchema,
+  stateSchema: workflowStateSchema,
   execute: async ({
     inputData,
     resumeData,
@@ -298,12 +340,20 @@ export const qualityCheckStep = createStep({
     mastra,
     getInitData,
     requestContext,
+    state,
   }) => {
     const initData = getInitData<{ message: string }>();
     const originalMessage = initData?.message || "";
     const activeMcpIds =
       (requestContext?.get("activeMcpIds") as string[] | undefined) ||
       getAllMcpIds();
+    const executionTargets = state?.executionTargets || [];
+    const executionMode = state?.executionMode || "parallel";
+    const userId =
+      (requestContext?.get("userId") as string | undefined) || "default-user";
+    const threadId =
+      (requestContext?.get("threadId") as string | undefined) ||
+      "default-thread";
 
     // === Resume 경로 ===
     if (resumeData?.action) {
@@ -371,6 +421,10 @@ export const qualityCheckStep = createStep({
           activeMcpIds,
           mastra,
           inputData.content,
+          executionTargets,
+          executionMode,
+          userId,
+          threadId,
         ),
       );
     }
@@ -393,6 +447,10 @@ export const qualityCheckStep = createStep({
           activeMcpIds,
           mastra,
           inputData.content,
+          executionTargets,
+          executionMode,
+          userId,
+          threadId,
         ),
       );
     }
