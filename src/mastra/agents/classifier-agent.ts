@@ -15,72 +15,45 @@ const classifierAgentConfig = {
 ## Classification Rules
 
 ### "simple"
-Greetings, small talk, simple questions not requiring any external data source.
-Examples: 안녕하세요, 오늘 날씨 어때?, 나 우울해, 오늘 점심 메뉴 추천해줘
+Greetings, small talk, or questions not requiring any external data source.
 
 ### "agent"
-Any question that requires an external data source or tool. Route to one or more agents from the [AVAILABLE AGENTS] list provided in the user's message.
-- Single agent needed: set targets to exactly one MCP ID
-- Multiple agents needed: set targets to 2+ MCP IDs
+Any question requiring an external data source or tool. Route to agents from [AVAILABLE AGENTS].
 
-## Output Rules
+## Output Format
 - type: "simple" or "agent"
-- targets: list the MCP IDs from [AVAILABLE AGENTS] needed to answer the question
-  - For "simple": empty array []
-  - For "agent": 1 or more entries
-  - ORDER MATTERS for sequential mode: list targets in execution order
-- queries: provide a query for each target (Key: MCP ID)
-  - For "simple": empty object {}
-  - For "parallel" or single target: plain string query
-  - For "sequential": object with { query, goal, contextHint }
-    - query: the specific query for this agent
-    - goal: what this step should accomplish (focus on what to produce for next steps)
-    - contextHint: (2nd+ step only) what information to reference from the previous step's result. Omit for the first step.
-- reasoning: brief explanation of why this classification was chosen
-- executionMode: how targets are executed when there are 2+ targets
-  - "parallel": targets are independent, can run simultaneously (default)
-    Example: "Jira 이슈 찾고 관련 뉴스도 검색해줘" → independent queries
-  - "sequential": targets have dependencies, must run in order (earlier results feed into later queries)
-    Example: "Confluence에서 데이터 문서 찾고, 거기서 나온 테이블을 DataHub에서 조회해줘"
-  - For single-target or simple: always "parallel" (ignored)
+- targets: MCP IDs to call (empty [] for simple)
+- queries: query per target
+  - parallel/single: plain string
+  - sequential: { query, goal, contextHint }
+    - goal: what this step should produce for next steps
+    - contextHint: (2nd+ step only) what to reference from the previous result
+- reasoning: brief explanation
+- executionMode: "parallel" (independent) or "sequential" (dependent, order matters)
 
-## Sequential Planning Examples
+## Execution Mode
+Infer from the user's intent:
+- Independent tasks ("A하고 B도 해줘") → parallel
+- Dependent chain ("A해서 나온 결과로 B해줘") → sequential, list targets in execution order
+- Single target or simple → always "parallel"
 
-User: "Confluence에서 데이터 문서 찾고, 거기서 나온 테이블을 DataHub에서 조회해줘"
-→ type: "agent", targets: ["atlassian", "datahub"], executionMode: "sequential"
+## Format Examples
+
+Sequential (dependent chain):
+→ targets: ["agent-a", "agent-b"], executionMode: "sequential"
 → queries: {
-    "atlassian": { "query": "데이터 관련 문서 검색", "goal": "데이터 관련 문서를 찾고 언급된 테이블/데이터셋 이름 추출" },
-    "datahub": { "query": "테이블 스키마 및 메타데이터 조회", "goal": "문서에서 참조된 테이블의 상세 정보 확인", "contextHint": "테이블 이름, 데이터셋 이름, URN" }
+    "agent-a": { "query": "...", "goal": "extract X for next step" },
+    "agent-b": { "query": "...", "goal": "use X to produce Y", "contextHint": "X names, IDs" }
   }
 
-User: "Jira에서 이번 스프린트 이슈 가져오고, 관련 내용을 웹에서 검색해줘"
-→ type: "agent", targets: ["atlassian", "google-search"], executionMode: "sequential"
-→ queries: {
-    "atlassian": { "query": "현재 스프린트 이슈 목록 조회", "goal": "이번 스프린트의 주요 이슈와 키워드 추출" },
-    "google-search": { "query": "스프린트 이슈 관련 기술 자료 검색", "goal": "이슈에서 언급된 기술 주제의 최신 정보 확인", "contextHint": "이슈 제목, 기술 키워드" }
-  }
+Parallel (independent):
+→ targets: ["agent-a", "agent-b"], executionMode: "parallel"
+→ queries: { "agent-a": "query A", "agent-b": "query B" }
 
-User: "Jira 이슈 찾고 관련 뉴스도 검색해줘" (independent)
-→ type: "agent", targets: ["atlassian", "google-search"], executionMode: "parallel"
-→ queries: { "atlassian": "Jira 이슈 검색", "google-search": "관련 뉴스 검색" }
-
-User: "매출 테이블 분석해서 대시보드 만들어줘" (datahub → data-analyst chain)
-→ type: "agent", targets: ["datahub", "data-analyst"], executionMode: "sequential"
-→ queries: {
-    "datahub": { "query": "매출 관련 테이블 검색 및 스키마 조회", "goal": "매출 테이블의 스키마, 컬럼, 데이터 타입 파악" },
-    "data-analyst": { "query": "매출 데이터 분석 대시보드 생성", "goal": "DuckDB SQL로 매출 분석 대시보드 생성", "contextHint": "테이블명, 컬럼명, 데이터 타입, URN" }
-  }
-
-User: "users 테이블 스키마 보여줘" (simple metadata, datahub only)
-→ type: "agent", targets: ["datahub"], executionMode: "parallel"
-→ queries: { "datahub": "users 테이블 스키마 조회" }
-
-IMPORTANT:
-- When the user asks for data analysis, visualization, or dashboard creation, ALWAYS use sequential mode with datahub first then data-analyst.
-- When the user asks for simple metadata lookup (schema, lineage, table info), use datahub alone.
-- Only classify to agents listed in the [AVAILABLE AGENTS] section of the user's message.
-- If no agents are available or the question doesn't match any, classify as "simple".
-- For sequential mode, think carefully about what each step should produce and what the next step needs from it.`,
+## Rules
+- Only classify to agents listed in [AVAILABLE AGENTS]. If none match, classify as "simple".
+- If an agent depends on another's output (e.g., needs metadata before analysis), use sequential mode.
+- If conversation history already contains the needed data from a previous agent call, you may skip the dependency and call the downstream agent directly.`,
 };
 
 /**
@@ -118,11 +91,27 @@ Examples:
 - Frequently Used Agents: [e.g., atlassian, google-search, datahub]
 - Default Jira Project: [e.g., PROJECT-KEY]
 - Default Confluence Space: [e.g., SPACE-KEY]
-- Frequently Queried Datasets: [e.g., table names]
-
-# Conversation Context
-- Recent Topics: [last 3-5 topics discussed]
-- Pending Follow-ups: [unresolved questions or references]`,
+- Frequently Queried Datasets: [e.g., table names]`,
+  },
+  observationalMemory: {
+    model: "google/gemini-2.5-flash" as const,
+    scope: "thread" as const,
+    observation: {
+      messageTokens: 30_000,
+      instruction:
+        `Prioritize capturing:
+(1) Factual data returned by agents — preserve exact identifiers, names, paths, and structured results.
+(2) What the user asked for and what was delivered.
+(3) Follow-up intentions or unresolved questions.
+Avoid capturing internal routing decisions or classification details.`,
+    },
+    reflection: {
+      observationTokens: 40_000,
+      instruction:
+        `When consolidating, group observations by topic or entity.
+Preserve exact identifiers and structured data from agent results.
+Merge duplicate observations about the same entity.`,
+    },
   },
 };
 
