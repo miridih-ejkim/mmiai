@@ -14,9 +14,16 @@ export const synthesizeResponseStep = createStep({
   outputSchema: z.object({
     response: z.string(),
   }),
-  execute: async ({ inputData, mastra, writer, getInitData }) => {
+  execute: async ({ inputData, mastra, writer, getInitData, requestContext }) => {
     const initData = getInitData<{ message: string }>();
     const agent = mastra!.getAgent("finalResponserAgent");
+
+    // Memory 연동: userId(resource) + threadId(thread)로 대화 응답 자동 기록
+    const userId =
+      (requestContext?.get("userId") as string | undefined) || "default-user";
+    const threadId =
+      (requestContext?.get("threadId") as string | undefined) ||
+      "default-thread";
 
     let prompt: string;
 
@@ -34,8 +41,14 @@ ${inputData.content}
 ${!inputData.success ? "\n주의: 일부 검색에서 오류가 발생했습니다. 사용 가능한 정보만으로 응답하되, 오류 사실도 안내하세요." : ""}`;
     }
 
-    // 실시간 스트리밍: writer로 pipeTo하여 UI에 텍스트가 실시간 표시됨
-    const response = await agent.stream(prompt);
+    // 실시간 스트리밍 + 공유 Memory에 대화 자동 기록
+    // classifier가 같은 thread를 recall하여 대화 맥락을 유지
+    const response = await agent.stream(prompt, {
+      memory: {
+        resource: userId,
+        thread: threadId,
+      },
+    });
     await response.fullStream.pipeTo(writer);
 
     return {

@@ -3,6 +3,7 @@ import { Mastra } from "@mastra/core/mastra";
 import { RequestContext } from "@mastra/core/request-context";
 import { PinoLogger } from "@mastra/loggers";
 import { PostgresStore } from "@mastra/pg";
+import { Memory } from "@mastra/memory";
 
 import {
   Observability,
@@ -24,7 +25,10 @@ import {
   createDataHubAgent,
   createDataAnalystAgent,
 } from "./agents/workers";
-import { createClassifierAgent } from "./agents/classifier-agent";
+import {
+  createClassifierAgent,
+  conversationMemoryOptions,
+} from "./agents/classifier-agent";
 import { createFinalResponserAgent } from "./agents/final-responser";
 
 import { chatWorkflow } from "./workflows/chat-workflow";
@@ -48,11 +52,20 @@ export async function initializeMastra(): Promise<{
   const dataHubAgent = createDataHubAgent();
   const dataAnalystAgent = createDataAnalystAgent();
 
-  // Classifier Agent 생성 (의도 분류 전용, 도구 없음)
-  const classifierAgent = createClassifierAgent();
+  // 공유 Memory 인스턴스 — classifier와 finalResponser가 같은 스레드에 읽기/쓰기
+  // finalResponser가 응답을 기록하고, classifier가 대화 맥락을 recall
+  const conversationMemory = new Memory({
+    options: {
+      lastMessages: 20,
+      ...conversationMemoryOptions,
+    },
+  });
 
-  // Final Responser Agent 생성 (응답 합성 전용, 도구 없음)
-  const finalResponserAgent = createFinalResponserAgent();
+  // Classifier Agent 생성 (의도 분류 전용, 공유 Memory로 대화 맥락 recall)
+  const classifierAgent = createClassifierAgent(conversationMemory);
+
+  // Final Responser Agent 생성 (응답 합성 전용, 공유 Memory에 응답 기록)
+  const finalResponserAgent = createFinalResponserAgent(conversationMemory);
 
   // Mastra 인스턴스 생성
   const mastra = new Mastra({
@@ -178,34 +191,10 @@ export async function initializeMastra(): Promise<{
                 });
               }
 
-              // Completed → classifier memory에 최종 응답 기록 (다음 대화 맥락 유지)
+              // Completed — 응답은 finalResponser의 공유 Memory에 자동 기록됨
               const responseText =
                 result.result?.response ||
                 "워크플로우가 종료되었습니다.";
-
-              try {
-                const classifier = mastra.getAgent("classifierAgent") as any;
-                const memory = await classifier.getMemory();
-                if (memory) {
-                  await memory.saveMessages({
-                    messages: [
-                      {
-                        id: `resp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                        role: "assistant" as const,
-                        createdAt: new Date(),
-                        threadId,
-                        resourceId: userId,
-                        content: {
-                          format: 2 as const,
-                          parts: [{ type: "text" as const, text: responseText }],
-                        },
-                      },
-                    ],
-                  });
-                }
-              } catch (memErr) {
-                console.warn("[/chat] Memory save failed:", memErr);
-              }
 
               return c.json({
                 status: "completed",

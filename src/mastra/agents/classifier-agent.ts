@@ -1,6 +1,5 @@
 import { Agent } from "@mastra/core/agent";
 import { Memory } from "@mastra/memory";
-import { PostgresStore } from "@mastra/pg";
 /**
  * Classifier Agent 설정
  * 의도 분류 전용 (structured output)
@@ -85,20 +84,12 @@ IMPORTANT:
 };
 
 /**
- * Classifier Agent 팩토리 함수
+ * 대화 Memory 옵션 — classifier와 finalResponser가 공유하는 Memory에 적용
  */
-export function createClassifierAgent() {
-  return new Agent({
-    ...classifierAgentConfig,
-    memory: new Memory({
-      storage: new PostgresStore({
-        id: "classifier-agent",
-        connectionString: process.env.DATABASE_URL,
-      }),
-      options: {
-        generateTitle: {
-          model: "claude-haiku-4-5",
-          instructions: `Generate a concise thread title from the user's FIRST message only.
+export const conversationMemoryOptions = {
+  generateTitle: {
+    model: "claude-haiku-4-5" as const,
+    instructions: `Generate a concise thread title from the user's FIRST message only.
 
 Rules:
 - Maximum 6 words, prefer 3-4 words
@@ -113,11 +104,11 @@ Examples:
 - "users 테이블 스키마 확인해줘" → "users 테이블 스키마"
 - "안녕하세요 반갑습니다" → "일반 대화"
 - "What is the latest release?" → "Latest Release Info"`,
-        },
-        workingMemory: {
-          enabled: true,
-          scope: "resource",
-          template: `# User Profile
+  },
+  workingMemory: {
+    enabled: true as const,
+    scope: "resource" as const,
+    template: `# User Profile
 - Name:
 - Role: [e.g., Developer, PM, Designer]
 - Team:
@@ -131,9 +122,17 @@ Examples:
 
 # Conversation Context
 - Recent Topics: [last 3-5 topics discussed]
-- Pending Follow-ups: [unresolved questions or references]`
-        }
-      }
-    })
+- Pending Follow-ups: [unresolved questions or references]`,
+  },
+};
+
+/**
+ * Classifier Agent 팩토리 함수
+ * @param memory - 공유 Memory 인스턴스 (대화 맥락 유지용)
+ */
+export function createClassifierAgent(memory: Memory) {
+  return new Agent({
+    ...classifierAgentConfig,
+    memory,
   });
 }
