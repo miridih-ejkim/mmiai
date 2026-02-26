@@ -17,6 +17,7 @@ MCP Registry 기반 동적 확장 — Worker Agent/MCP 추가 시 Workflow Step/
 - **Agent Server**: Mastra Server (port 4111)
 - **Agent Framework**: Mastra (Workflow 패턴)
 - **MCP**: @mastra/mcp (Model Context Protocol 통합)
+- **Evals**: @mastra/evals (createScorer — code-based 품질 평가)
 - **Language**: TypeScript (ES2022, ESM)
 - **LLM**: Anthropic Claude Sonnet 4.5 (`anthropic/claude-sonnet-4-5`)
 - **UI**: React 19, Tailwind CSS 4, shadcn/ui
@@ -37,17 +38,22 @@ Mastra Agent Server (port 4111)
   │  registerApiRoute("/chat")       ← suspend/resume 지원
   │  registerApiRoute("/chat-history")
   │
-  ├── Chat Workflow (Deterministic + Planner + HITL)
-  │     ├── Step 1: classify-intent (Planner — 의도 분류 + 실행 계획)
-  │     ├── Step 2: .branch(simple | agent) → 2분기
-  │     ├── Step 3: .map() → 출력 정규화
-  │     ├── Step 4: quality-check → suspend/resume (HITL)
-  │     └── Step 5: synthesize-response
+  ├── Chat Workflow (dountil Loop + Classifier HITL)
+  │     ├── dountil(classifyAndExecuteWorkflow, condition)
+  │     │     ├── classify-intent (Planner + HITL suspend)
+  │     │     │     ├── clarify → suspend (사용자 질문)
+  │     │     │     └── ambiguous → suspend (Agent 선택)
+  │     │     ├── .branch(simple | agent) → 2분기
+  │     │     ├── .map() → 출력 정규화
+  │     │     └── quality-check (순수 품질 게이트)
+  │     │           └── qualityScorer → PASS/FAIL(retry)
+  │     └── synthesize-response (루프 후)
   │
   ├── Worker Agents
   │     ├── AtlassianAgent → MCP (HTTP)
   │     ├── GoogleSearchAgent → MCP (stdio)
-  │     └── DataHubAgent → MCP (HTTP)
+  │     ├── DataHubAgent → MCP (HTTP)
+  │     └── DataAnalystAgent → MCP (HTTP)
   │
   └── google-search-mcp/ (stdio 프로세스)
 ```
@@ -67,7 +73,7 @@ mmiai/
 │   └── node_modules/           # MCP 서버 의존성
 ├── src/
 │   ├── app/                    # Next.js App Router (UI Only)
-│   │   ├── chat/page.tsx       # Chat UI 페이지
+│   │   ├── chat/page.tsx       # Chat UI 페이지 (clarify/ambiguous HITL)
 │   │   ├── layout.tsx          # Root 레이아웃
 │   │   └── page.tsx            # 홈페이지
 │   ├── components/
@@ -85,12 +91,17 @@ mmiai/
 │       │   ├── client.ts              # MCPClient 설정 (하이브리드 HTTP/stdio)
 │       │   ├── server.ts              # MCPServer 생성 (서비스별 분리)
 │       │   └── datahub-fallback-tools.ts  # DataHub 재귀 스키마 fallback
+│       ├── scorers/            # Mastra Scorer (code-based, LLM 호출 없음)
+│       │   ├── index.ts               # export { qualityScorer }
+│       │   ├── quality-scorer.ts      # Agent 응답 품질 평가 (quality-check용)
+│       │   └── utils.ts               # 공유 유틸: stop words(KO/EN), extractKeywords
 │       ├── workflows/          # Workflow 정의
-│       │   ├── chat-workflow.ts       # 메인 Chat Workflow (2분기)
+│       │   ├── chat-workflow.ts       # 메인 Chat Workflow (dountil + synthesize)
+│       │   ├── state.ts               # 공유 상태 스키마 (previousFeedback 포함)
 │       │   └── steps/                 # Workflow Steps
-│       │       ├── classify-intent.ts # Planner Step (의도 분류 + 실행 계획)
+│       │       ├── classify-intent.ts # Planner + HITL Step (clarify/ambiguous suspend)
 │       │       ├── agent-steps.ts     # 통합 Agent Step (single/multi 동적)
-│       │       ├── quality-check.ts   # 품질 검증 Step (HITL suspend/resume)
+│       │       ├── quality-check.ts   # 순수 품질 게이트 (qualityScorer 사용)
 │       │       └── synthesize-response.ts  # 최종 응답 합성 Step
 │       └── agents/
 │           ├── classifier-agent.ts    # 의도 분류 + 실행 계획 Agent (Haiku)
@@ -99,9 +110,11 @@ mmiai/
 │               ├── index.ts
 │               ├── atlassian-agent.ts
 │               ├── google-search-agent.ts
-│               └── datahub-agent.ts
+│               ├── datahub-agent.ts
+│               └── data-analyst-agent.ts
 ├── docs/
-│   └── workflow-migration-analysis.md  # Workflow 전환 분석 문서
+│   ├── workflow-hitl-architecture.drawio  # 아키텍처 다이어그램
+│   └── workflow-migration-analysis.md     # Workflow 전환 분석 문서
 ├── Dockerfile.server
 ├── Dockerfile.web
 ├── docker-compose.yml
@@ -119,56 +132,68 @@ mmiai/
 User Message
      │
      ▼
-┌─────────────────────┐
-│ 1. Planner          │  ← Haiku (비용 절감, structured output)
-│ (classify-intent)   │  → { type, targets[], queries{}, executionMode }
-│                     │  sequential일 때: queries에 goal/contextHint 포함
-└─────────┬───────────┘
-          │
-     ┌────┴──── .branch() ────────┐
-     │       (2분기: simple|agent) │
-     ▼                             ▼
-┌──────────┐              ┌────────────────┐
-│  Simple  │              │  Agent Step    │
-│  직접 응답 │              │  (통합)         │
-│          │              │                │
-└────┬─────┘              │ targets=1:     │
-     │                    │  Single 호출    │
-     │                    │                │
-     │                    │ targets=2+:    │
-     │                    │  parallel →    │
-     │                    │    Promise.all │
-     │                    │  sequential →  │
-     │                    │    loop + goal │
-     │                    │    /contextHint│
-     │                    └───────┬────────┘
-     └────────────────────────────┘
-                       │
-                  .map() (출력 정규화)
-                       │
-                       ▼
-              ┌─────────────────┐
-              │ Quality Check   │  ← 규칙 기반 품질 평가 (LLM 호출 없음)
-              │ (HITL Gate)     │  ← score < threshold → suspend
-              └───────┬─────────┘
-                      │
-              ┌───────┴────────┐
-              │                │
-         통과              suspend
-              │           (refine/reroute/new)
-              │                │
-              │         resume() or 새workflow
-              │                │
-              └───────┬────────┘
-                      │
-                      ▼
-              ┌─────────────────┐
-              │ Final: Response │  ← Agent (Haiku)
-              │ Synthesis       │  ← 결과 통합 전용
-              └─────────────────┘
-                      │
-                      ▼
-                 User Response
+╔══════════════════════════════════════════════════╗
+║  dountil Loop (classifyAndExecuteWorkflow)       ║
+║  max 3 iterations                                ║
+║                                                  ║
+║  ┌────────────────────────────┐                  ║
+║  │ classify-intent (Planner)  │                  ║
+║  │ Classifier Agent           │                  ║
+║  │ 의도 분류 + 실행 계획      │                  ║
+║  └──┬───────┬───────┬─────┬──┘                   ║
+║     │       │       │     │                      ║
+║  clarify ambiguous simple agent                  ║
+║     │       │       │     │                      ║
+║  suspend suspend    │  ┌──┴──────────┐           ║
+║     │       │       │  │ agent-step  │           ║
+║  (사용자   (사용자   │  │ (통합)      │           ║
+║   답변)    선택)    │  │ single/     │           ║
+║     │       │       │  │ parallel/   │           ║
+║  resume  resume     │  │ sequential  │           ║
+║     │       │       │  └──┬──────────┘           ║
+║     └───────┘       └─────┘                      ║
+║                       │                          ║
+║                  .map() (출력 정규화)              ║
+║                       │                          ║
+║              ┌────────┴────────┐                  ║
+║              │  quality-check  │ ← qualityScorer  ║
+║              │  (순수 게이트)   │                  ║
+║              └───┬─────────┬───┘                  ║
+║                  │         │                      ║
+║               PASS      FAIL                     ║
+║             (exit)    source="retry"             ║
+║                  │         │                      ║
+║                  │    state.previousFeedback      ║
+║                  │         └──→ classify-intent   ║
+║                  │              (다음 iteration)   ║
+╚══════════════════╪════════════════════════════════╝
+                   │
+                   ▼
+          ┌─────────────────┐
+          │ synthesize-     │  ← Final Responser Agent (Haiku)
+          │ response        │
+          └────────┬────────┘
+                   │
+                   ▼
+             User Response
+```
+
+### Workflow 구조 (코드)
+
+```typescript
+// 내부 루프: classify → branch → quality-check
+const classifyAndExecuteWorkflow = createWorkflow(...)
+  .then(classifyIntentStep)         // Planner + HITL
+  .branch([simple, agent])          // 2분기
+  .map(normalize)                   // 출력 정규화
+  .then(qualityCheckStep)           // 순수 품질 게이트
+  .commit();
+
+// 메인 Workflow: dountil 루프 + 합성
+export const chatWorkflow = createWorkflow(...)
+  .dountil(classifyAndExecuteWorkflow, exitCondition)  // max 3
+  .then(synthesizeResponseStep)                         // 최종 합성
+  .commit();
 ```
 
 ### 설계 원칙
@@ -179,7 +204,9 @@ User Message
 | 데이터 흐름 | Zod 스키마 검증 (Step 간 타입 안전) |
 | 병렬/순차 | `executionMode`로 선언적 제어 (parallel/sequential) |
 | Sequential 맥락 | `goal` + `contextHint`로 단계 간 구조화된 컨텍스트 전달 |
-| HITL | `suspend()` / `resume()` (quality-check Step) |
+| HITL | `suspend()` / `resume()` (classify-intent Step — 단일 suspend 포인트) |
+| 자동 재시도 | `dountil` 루프 + `state.previousFeedback` (UI 개입 없음) |
+| 품질 평가 | Mastra Scorer (code-based, LLM 호출 없음) |
 | 동적 확장 | MCP Registry 기반 — Agent/MCP 추가 시 Step/Branch 수정 불필요 |
 | 에러 처리 | Step 단위 try/catch + 재시도 |
 | 관측성 | Step별 input/output 자동 추적 |
@@ -188,10 +215,10 @@ User Message
 
 | Step | 역할 | 모델 | 설명 |
 |------|------|------|------|
-| `classify-intent` | Planner (의도 분류 + 실행 계획) | Haiku | `type`/`targets`/`queries`/`executionMode` 반환. sequential 시 `goal`/`contextHint` 포함 |
+| `classify-intent` | Planner + HITL | Haiku | 의도 분류 + 실행 계획. clarify/ambiguous 시 suspend |
 | `direct-response` | 직접 응답 | - | 인사말 등 단순 질문, 분류 reasoning을 content로 전달 |
 | `agent-step` | 통합 Agent 실행 | Haiku | Registry 기반 동적 Agent 호출. 1개=single, 2개+=parallel/sequential |
-| `quality-check` | 품질 검증 (HITL) | - | 규칙 기반 점수 평가, 실패 시 suspend → 라디오 버튼 UI (refine/reroute/new) |
+| `quality-check` | 순수 품질 게이트 | - | qualityScorer 기반, 실패 시 source="retry" 반환 (suspend 없음) |
 | `synthesize-response` | 최종 응답 | Haiku | 검색 결과 기반 사용자 응답 생성 |
 
 ### 라우팅 규칙
@@ -200,6 +227,8 @@ User Message
 |-----------|------|------|
 | `simple` | 직접 응답 | 인사말, 단순 질문 (외부 데이터 불필요) |
 | `agent` | Agent Step | 1개 이상의 MCP Worker 호출. targets 배열로 동적 결정 |
+| `clarify` | HITL suspend | 정보 부족 → 사용자에게 질문 (clarifyQuestion) |
+| `ambiguous` | HITL suspend | 라우팅 모호 → 사용자에게 Agent 선택 요청 (candidates) |
 
 `[AVAILABLE AGENTS]`가 동적으로 프롬프트에 주입되므로 MCP 추가 시 분류 규칙 자동 확장.
 
@@ -221,92 +250,121 @@ Step 2 (datahub):   goal="테이블 상세 정보 확인", contextHint="테이�
 
 parallel/single 모드에서는 기존처럼 plain string query 유지 (하위 호환).
 
+## Mastra Scorer
+
+Mastra `createScorer()` API를 사용한 code-based scorer (LLM 호출 없음).
+`src/mastra/scorers/` 디렉토리에 위치.
+
+### qualityScorer
+
+quality-check Step에서 Agent 응답 품질 평가.
+
+| 평가 축 | 가중치 | 설명 |
+|---------|--------|------|
+| Completeness | 0.4 | 사용자 키워드가 응답에 포함된 비율 |
+| Keyword Coverage | 0.3 | stop-word 필터링 후 매칭율 |
+| Structural Quality | 0.3 | 길이(0.6) + 구조 요소(0.4: newlines, lists, links) |
+
+`QUALITY_THRESHOLD = 0.3` — 이하 시 source="retry" 반환 → dountil 루프백.
+
+### 프롬프트 구조 (classify-intent)
+
+```
+{userMessage}
+
+[AVAILABLE AGENTS]
+- "atlassian": Confluence documents, Jira issues...
+- "datahub": Data catalog exploration...
+
+[PREVIOUS FEEDBACK]                 ← dountil 재시도 시에만
+이전 실행 결과가 품질 기준을 통과하지 못했습니다.
+Score 0.22: completeness=0.3 (missing: 테이블), keywords=0.1, structure=0.3
+
+IMPORTANT: You may ONLY route to agents listed above...
+```
+
 ## Human-in-the-Loop (HITL)
 
 ### 구조
 
-`quality-check` Step이 suspend/resume 게이트 역할.
-suspend 시 라디오 버튼 UI로 3가지 액션(refine/reroute/new)을 제공:
+**Classifier 중심 단일 Suspend 포인트** — `classify-intent` Step만 suspend 가능.
 
-1. **품질 평가** (규칙 기반, LLM 호출 없음):
-   - `success === false` 또는 빈 content → 즉시 suspend
-   - `source === "direct"` → 품질 체크 스킵 (인사말 등)
-   - 점수 계산: 길이(0.4) + 키워드 커버리지(0.3) + 구조적 품질(0.3)
-   - `score < 0.3` → suspend
+3가지 HITL 경로:
 
-2. **Suspend**: 워크플로우 일시 중지, 클라이언트에 선택지 포함 응답 반환
-   ```json
-   {
-     "status": "suspended",
-     "runId": "...",
-     "reason": "결과 품질이 낮습니다",
-     "score": 0.25,
-     "originalSource": "atlassian",
-     "options": [
-       { "value": "refine", "label": "추가 지시로 보완" },
-       { "value": "reroute", "label": "다른 Agent로 전환" },
-       { "value": "new", "label": "새 질문으로 시작" }
-     ],
-     "availableAgents": [
-       { "value": "google-search", "label": "Google Search" },
-       { "value": "datahub", "label": "DataHub" }
-     ]
-   }
-   ```
+| HITL Type | 트리거 | UI | 처리 |
+|-----------|--------|-----|------|
+| **clarify** | Classifier가 정보 부족 판단 | 어시스턴트 질문 메시지 | 사용자 답변 → `resume({ userAnswer })` → 재분류 |
+| **ambiguous** | Classifier가 라우팅 모호 판단 | Agent 선택 카드 | 사용자 선택 → `resume({ selectedAgent })` → 선택 Agent로 실행 |
+| **자동 재시도** | quality-check 실패 | UI 없음 (자동) | `state.previousFeedback` → dountil 루프백 → Classifier가 전략 개선 |
 
-3. **사용자 액션 처리**:
+### Suspend Payload
 
-| 액션 | 의미 | 구현 |
-|------|------|------|
-| **refine** | 같은 Agent + 원본 질문 + 추가 지시 | `resume()` (같은 workflow) |
-| **reroute** | 다른 Agent로 전환 | `resume()` (quality-check에서 targetAgent 직접 호출) |
-| **new** | 새 질문으로 처음부터 | 새 workflow |
-
-refine과 reroute는 모두 `resume()`으로 quality-check Step에서 처리.
-quality-check의 resume 경로에서 `getRegistryEntry(mcpId)`를 통해 Agent를 직접 호출하므로
-classify-intent를 다시 거치지 않음.
+```json
+{
+  "status": "suspended",
+  "runId": "...",
+  "suspendedStep": ["classify-and-execute", "classify-intent"],
+  "hitlType": "clarify" | "ambiguous",
+  "clarifyQuestion": "어떤 프로젝트의 데이터를 찾으시나요?",
+  "candidates": [
+    { "agentId": "atlassian", "reason": "문서 검색에 적합" },
+    { "agentId": "datahub", "reason": "데이터 카탈로그 조회에 적합" }
+  ],
+  "originalMessage": "..."
+}
+```
 
 ### API 흐름
 
 ```
 [새 요청]
-POST /chat { inputData: { message: "..." } }
+POST /chat { userId, inputData: { message: "..." } }
   → workflow.createRun().start()
   → status: "completed" | "suspended"
 
-[Refine: 같은 Agent로 보완]
+[Clarify: 사용자 답변]
 POST /chat {
-  runId: "...",
-  resumeData: { action: "refine", userFeedback: "더 자세히 검색해줘" }
+  userId, runId, suspendedStep: [...],
+  resumeData: { userAnswer: "영상처리 관련 데이터입니다" }
 }
-  → workflow.resume({ step: "quality-check", resumeData })
-  → 같은 Agent + 원본 질문 + 피드백 결합 재실행
+  → workflow.resume({ step: suspendedStep, resumeData })
+  → 원본 + 답변 결합 재분류 → 실행
 
-[Reroute: 다른 Agent로 전환]
+[Ambiguous: Agent 선택]
 POST /chat {
-  runId: "...",
-  resumeData: { action: "reroute", targetAgent: "google-search", userFeedback: "..." }
+  userId, runId, suspendedStep: [...],
+  resumeData: { selectedAgent: "datahub" }
 }
-  → workflow.resume({ step: "quality-check", resumeData })
-  → targetAgent + 원본 질문 + 피드백 전달 (classify-intent 우회)
+  → workflow.resume({ step: suspendedStep, resumeData })
+  → 선택 Agent로 즉시 실행 (재분류 우회)
 
-[New: 새 질문]
+[New: 새 질문 (ambiguous에서 텍스트 입력)]
 POST /chat {
-  runId: "...",
+  userId, runId,
   resumeData: { action: "new", userFeedback: "새 질문 텍스트" }
 }
   → 새 workflow.start({ inputData: { message: "새 질문 텍스트" } })
-  → 처음부터 분류 → 라우팅 → 실행
 ```
 
 ### Chat UI 연동
 
 `src/app/chat/page.tsx`에서 suspend 상태 관리:
-- `suspendState`가 null → 새 워크플로우 실행
-- `suspendState`가 있으면 → 라디오 버튼 패널 표시:
-  - **refine**: 텍스트 입력 → resume 요청
-  - **reroute**: Agent 선택 칩 + 텍스트 입력 → resume 요청 (targetAgent 포함)
-  - **new**: 텍스트 입력 → 새 workflow
+- `suspendState === null` → 일반 모드 (새 워크플로우 실행)
+- `hitlType === "clarify"` → 어시스턴트 질문 메시지 표시 + 사용자 텍스트 답변
+- `hitlType === "ambiguous"` → Agent 선택 카드 표시 + 텍스트 입력 시 새 질문
+
+## Workflow 공유 상태
+
+`src/mastra/workflows/state.ts`에 정의된 `workflowStateSchema`:
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `executionTargets` | `string[]` | 실행된 Agent 목록 (MCP ID) |
+| `executionMode` | `"parallel" \| "sequential"` | 실행 모드 |
+| `previousFeedback` | `string?` | quality-check 실패 시 피드백 (dountil 루프용) |
+
+quality-check가 실패하면 `setState({ previousFeedback: "..." })`로 피드백 기록.
+다음 iteration에서 classify-intent가 `state.previousFeedback`을 `[PREVIOUS FEEDBACK]` 섹션으로 프롬프트에 주입.
 
 ## MCP 아키텍처 (Lazy Loading + Registry)
 
@@ -358,6 +416,8 @@ POST /chat {
 |------|--------|------|
 | `/chat` | POST | Workflow 실행 (suspend/resume 지원, JSON 응답) |
 | `/chat-history` | GET | 대화 기록 조회 (registerApiRoute) |
+| `/mcp/registry` | GET | 전체 MCP 목록 |
+| `/mcp/activations` | GET/POST | 사용자별 MCP 활성화 상태 조회/토글 |
 
 > 참고: `/api/*` 경로는 Mastra 내부 예약 (agents, workflows 등)
 
@@ -369,20 +429,21 @@ src/mastra/index.ts (top-level await)
         ├── createAtlassianAgent()           # Worker Agent 생성 (도구 없이)
         ├── createGoogleSearchAgent()        # Worker Agent 생성 (도구 없이)
         ├── createDataHubAgent()             # Worker Agent 생성 (도구 없이)
+        ├── createDataAnalystAgent()         # Worker Agent 생성 (도구 없이)
         ├── createClassifierAgent()          # Planner Agent 생성
         ├── createFinalResponserAgent()      # 최종 응답 Agent 생성
         └── new Mastra({
               agents: {...},
               workflows: { chatWorkflow },
               storage: PostgresStore,
-              server: { apiRoutes: ["/chat", "/chat-history"] }
+              server: { apiRoutes: ["/chat", "/chat-history", "/mcp/*"] }
             })
 ```
 
 - **Lazy MCP Loading**: MCP 서버는 시작 시 연결하지 않음 → 첫 요청 시 `McpConnectionManager`가 lazy 연결
 - Worker Agent는 도구 없이 생성 → 실행 시 `mcpConnectionManager.getToolsets(mcpId)`로 동적 주입
 - `McpConnectionManager` 싱글톤이 `MCPClient` 인스턴스를 5분 TTL로 캐시
-- Workflow는 `createWorkflow()` → `.then()` / `.branch()` → `.commit()`으로 구성
+- Workflow는 `createWorkflow()` → `.dountil()` / `.then()` / `.branch()` → `.commit()`으로 구성
 
 ## 환경변수
 
@@ -434,7 +495,7 @@ Workflow Step/Branch 수정 없이 3개 파일만 변경:
 
 1. **`src/mastra/mcp/mcp-registry.ts`** — Registry에 MCP 서버 등록
    ```typescript
-   { id: "new-mcp", name: "New Service", description: "설명...", agentId: "newAgent", builder: () => new MCPClient({...}) }
+   { id: "new-mcp", name: "New Service", description: "설명... Keywords: 키워드1, 키워드2", agentId: "newAgent", builder: () => new MCPClient({...}) }
    ```
 2. **`src/mastra/agents/workers/`** — Worker Agent 파일 생성 (팩토리 패턴)
    - `createXxxAgent()` 팩토리 함수 export (도구 없이 생성)
@@ -444,7 +505,6 @@ Workflow Step/Branch 수정 없이 3개 파일만 변경:
 **자동으로 동작하는 것들:**
 - `classify-intent`의 `[AVAILABLE AGENTS]`에 자동 포함 (Registry에서 동적 생성)
 - `agent-step`이 Registry에서 agentId 조회하여 자동 호출
-- `quality-check`의 refine/reroute가 `getRegistryEntry()`로 자동 해결
 - 사용자 MCP 활성화 관리 (`user_mcp_activations` 테이블)
 
 ### Workflow Step 추가

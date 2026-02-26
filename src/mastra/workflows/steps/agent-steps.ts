@@ -2,6 +2,7 @@ import { createStep } from "@mastra/core/workflows";
 import { z } from "zod";
 import { classificationOutputSchema, type SequentialQuery } from "./classify-intent";
 import { mcpConnectionManager, getRegistryEntry, getAllMcpIds } from "../../mcp";
+import { workflowStateSchema } from "../state";
 
 /**
  * Agent 실행 결과 스키마
@@ -12,7 +13,7 @@ export const agentResultSchema = z.object({
   source: z
     .string()
     .describe(
-      "결과 출처 (direct, atlassian, google-search, datahub, multi-agent 등)",
+      "결과 출처 (direct, multi-agent, 또는 MCP ID)",
     ),
   content: z.string().describe("Agent 실행 결과 텍스트"),
   success: z.boolean().describe("실행 성공 여부"),
@@ -50,7 +51,8 @@ export const agentStep = createStep({
   id: "agent-step",
   inputSchema: classificationOutputSchema,
   outputSchema: agentResultSchema,
-  execute: async ({ inputData, mastra, getInitData, requestContext }) => {
+  stateSchema: workflowStateSchema,
+  execute: async ({ inputData, mastra, getInitData, requestContext, setState }) => {
     const initData = getInitData<{ message: string }>();
     const userMessage = initData?.message || "";
     const activeMcpIds =
@@ -73,6 +75,12 @@ export const agentStep = createStep({
     // source: 1개면 해당 MCP ID, 2개+면 "multi-agent"
     const sourceLabel =
       activeTargets.length === 1 ? activeTargets[0] : "multi-agent";
+
+    // 실행 계획을 workflow state에 기록 → quality-check가 참조
+    await setState({
+      executionTargets: activeTargets,
+      executionMode: inputData.executionMode || "parallel",
+    });
 
     try {
       if (
@@ -104,10 +112,10 @@ export const agentStep = createStep({
             // 구조화된 컨텍스트 전달: goal + contextHint로 이전 결과 프레이밍
             prompt = `## 목표\n${queryPlan.goal}\n\n## 이전 단계 결과\n(참고할 정보: ${queryPlan.contextHint})\n${previousResult}\n\n## 요청\n${queryPlan.query}`;
           } else if (previousResult) {
-            // 폴백: contextHint 없이 전체 결과 전달
+            // contextHint 없이 전체 결과 전달
             prompt = queryPlan.goal
-              ? `## 목표\n${queryPlan.goal}\n\n${queryPlan.query}\n\n이전 Agent 결과:\n${previousResult}`
-              : `${queryPlan.query}\n\n이전 Agent 결과:\n${previousResult}`;
+              ? `## 목표\n${queryPlan.goal}\n\n## 이전 단계 결과\n${previousResult}\n\n## 요청\n${queryPlan.query}`
+              : `${queryPlan.query}\n\n## 이전 단계 결과\n${previousResult}`;
           } else {
             // 첫 번째 단계
             prompt = queryPlan.goal

@@ -43,6 +43,7 @@ export async function createDatahubFallbackTools(): Promise<{
         DATAHUB_GMS_URL: process.env.DATAHUB_GMS_URL!,
         DATAHUB_GMS_TOKEN: process.env.DATAHUB_GMS_TOKEN || "",
       },
+      stderr: "ignore",
     });
   }
 
