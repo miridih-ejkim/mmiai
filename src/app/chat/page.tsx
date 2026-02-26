@@ -23,35 +23,27 @@ interface ChatMessage {
   content: string;
 }
 
-/** AI가 생성한 개선 제안 */
-interface HitlSuggestion {
-  id: string;
-  description: string;
-  actionType: 'refine' | 'reroute';
-  refinedQuery?: string;
-  targetAgent?: string;
-}
-
-/** reroute 가능한 Agent */
-interface AvailableAgent {
-  value: string;
+/** Plan 후보 (ambiguous 타입) */
+interface PlanCandidate {
+  planId: string;
   label: string;
+  description: string;
+  targets: string[];
+  executionMode: 'parallel' | 'sequential';
+  expectedOutcome: string;
 }
 
-/** Suspend 상태 (HITL 피드백 대기) */
+/** Suspend 상태 (HITL) */
 interface SuspendState {
   runId: string;
-  reason: string;
-  score: number;
-  originalSource: string;
+  suspendedStep: string[] | string;
+  hitlType: 'clarify' | 'ambiguous';
+  clarifyQuestion?: string;
+  candidates?: PlanCandidate[];
   originalMessage: string;
-  originalQuery: string;
-  suggestions: HitlSuggestion[];
-  availableAgents: AvailableAgent[];
 }
 
 function Chat() {
-  const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [suspendState, setSuspendState] = useState<SuspendState | null>(null);
@@ -106,24 +98,28 @@ function Chat() {
         const data = await res.json();
 
         if (data.status === 'suspended') {
+          const hitlType = data.hitlType as 'clarify' | 'ambiguous';
+
           setSuspendState({
             runId: data.runId,
-            reason: data.reason,
-            score: data.score,
-            originalSource: data.originalSource,
-            originalMessage: lastUserMessageRef.current,
-            originalQuery: data.originalQuery || lastUserMessageRef.current,
-            suggestions: data.suggestions || [],
-            availableAgents: data.availableAgents || [],
+            suspendedStep: data.suspendedStep,
+            hitlType,
+            clarifyQuestion: data.clarifyQuestion,
+            candidates: data.candidates,
+            originalMessage: data.originalMessage || lastUserMessageRef.current,
           });
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: nextId(),
-              role: 'system',
-              content: `\u26a0\ufe0f ${data.reason}\n\uc544\ub798\uc5d0\uc11c \uac1c\uc120 \ubc29\ubc95\uc744 \uc120\ud0dd\ud558\uac70\ub098 \uc9c1\uc811 \uc785\ub825\ud574\uc8fc\uc138\uc694.`,
-            },
-          ]);
+
+          if (hitlType === 'clarify') {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: nextId(),
+                role: 'assistant',
+                content: data.clarifyQuestion || '추가 정보를 알려주세요.',
+              },
+            ]);
+          }
+          // ambiguous → plan 선택 카드 UI (별도 렌더링)
         } else {
           setSuspendState(null);
           setMessages((prev) => [
@@ -131,7 +127,7 @@ function Chat() {
             {
               id: nextId(),
               role: 'assistant',
-              content: data.response || '\uc751\ub2f5\uc744 \uc0dd\uc131\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4.',
+              content: data.response || '응답을 생성하지 못했습니다.',
             },
           ]);
         }
@@ -141,7 +137,7 @@ function Chat() {
           {
             id: nextId(),
             role: 'system',
-            content: `\uc624\ub958\uac00 \ubc1c\uc0dd\ud588\uc2b5\ub2c8\ub2e4: ${error instanceof Error ? error.message : '\uc54c \uc218 \uc5c6\ub294 \uc624\ub958'}`,
+            content: `오류가 발생했습니다: ${error instanceof Error ? error.message : '알 수 없는 오류'}`,
           },
         ]);
         setSuspendState(null);
@@ -152,69 +148,65 @@ function Chat() {
     [],
   );
 
-  /** AI 제안 카드 클릭 */
-  const handleSuggestionClick = useCallback(
-    async (suggestion: HitlSuggestion) => {
+  /** ambiguous: Plan 선택 카드 클릭 */
+  const handlePlanSelect = useCallback(
+    async (candidate: PlanCandidate) => {
       if (!suspendState || isLoading) return;
 
       setMessages((prev) => [
         ...prev,
-        { id: nextId(), role: 'user', content: suggestion.description },
+        { id: nextId(), role: 'user', content: `"${candidate.label}" 선택` },
       ]);
 
       await sendToWorkflow({
         runId: suspendState.runId,
+        suspendedStep: suspendState.suspendedStep,
         resumeData: {
-          action: 'suggestion',
-          suggestionId: suggestion.id,
-          refinedQuery: suggestion.refinedQuery,
-          targetAgent: suggestion.targetAgent,
+          selectedPlan: candidate.planId,
+          selectedTargets: candidate.targets,
+          selectedExecutionMode: candidate.executionMode,
         },
       });
     },
     [suspendState, isLoading, sendToWorkflow],
   );
 
-  /** 워크플로우 종료 (bail) */
-  const handleDismiss = useCallback(async () => {
-    if (!suspendState || isLoading) return;
-
-    setMessages((prev) => [
-      ...prev,
-      { id: nextId(), role: 'system', content: '\uc6cc\ud06c\ud50c\ub85c\uc6b0\uac00 \uc885\ub8cc\ub418\uc5c8\uc2b5\ub2c8\ub2e4.' },
-    ]);
-
-    await sendToWorkflow({
-      runId: suspendState.runId,
-      resumeData: { action: 'dismiss' },
-    });
-
-    setSuspendState(null);
-  }, [suspendState, isLoading, sendToWorkflow]);
-
   /** 텍스트 입력 후 submit */
-  const handleSubmit = async () => {
+  const handleSubmit = async ({ text }: { text: string }) => {
     if (isLoading) return;
 
-    const userText = input.trim();
-    setInput('');
+    const userText = text.trim();
+    if (!userText) return;
 
     if (suspendState) {
-      // HITL 모드: 텍스트 입력 시 refine (같은 Agent + 추가 지시)
-      if (!userText) return;
+      if (suspendState.hitlType === 'clarify') {
+        setMessages((prev) => [
+          ...prev,
+          { id: nextId(), role: 'user', content: userText },
+        ]);
 
-      setMessages((prev) => [
-        ...prev,
-        { id: nextId(), role: 'user', content: userText },
-      ]);
+        await sendToWorkflow({
+          runId: suspendState.runId,
+          suspendedStep: suspendState.suspendedStep,
+          resumeData: { userAnswer: userText },
+        });
+      } else if (suspendState.hitlType === 'ambiguous') {
+        // ambiguous 모드에서 텍스트 입력 시 → 새 워크플로우로 시작
+        lastUserMessageRef.current = userText;
+        setSuspendState(null);
 
-      await sendToWorkflow({
-        runId: suspendState.runId,
-        resumeData: { action: 'refine', userFeedback: userText },
-      });
+        setMessages((prev) => [
+          ...prev,
+          { id: nextId(), role: 'user', content: userText },
+        ]);
+
+        await sendToWorkflow({
+          runId: suspendState.runId,
+          resumeData: { action: 'new', userFeedback: userText },
+        });
+      }
     } else {
       // 일반 모드
-      if (!userText) return;
       lastUserMessageRef.current = userText;
       setMessages((prev) => [
         ...prev,
@@ -229,7 +221,7 @@ function Chat() {
   return (
     <div className="w-full p-6 relative size-full h-screen">
       <div className="flex flex-col h-full">
-        <Conversation className="h-full">
+        <Conversation className="min-h-0">
           <ConversationContent>
             {messages.map((message) => (
               <Message key={message.id} from={message.role}>
@@ -238,102 +230,49 @@ function Chat() {
                 </MessageContent>
               </Message>
             ))}
+
+            {/* ambiguous: Plan 선택 카드 */}
+            {suspendState?.hitlType === 'ambiguous' && suspendState.candidates && (
+              <div className="mx-auto w-full max-w-2xl space-y-2 py-2">
+                <p className="text-sm text-white/70 mb-3">
+                  어떤 방식으로 처리할까요?
+                </p>
+                {suspendState.candidates.map((candidate) => (
+                  <button
+                    key={candidate.planId}
+                    type="button"
+                    onClick={() => handlePlanSelect(candidate)}
+                    disabled={isLoading}
+                    className="w-full text-left rounded-lg border border-white/10 p-4
+                               hover:bg-white/5 hover:border-blue-500/50 transition-colors
+                               cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <div className="font-medium text-sm">{candidate.label}</div>
+                    <div className="text-xs text-white/50 mt-1">{candidate.description}</div>
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className="text-xs text-blue-400/70 bg-blue-500/10 px-2 py-0.5 rounded">
+                        {candidate.expectedOutcome}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
             <ConversationScrollButton />
           </ConversationContent>
         </Conversation>
 
-        {/* HITL 제안 패널 */}
-        {suspendState && (
-          <div className="mx-auto w-full max-w-2xl rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-4 mb-3">
-            <p className="text-sm text-yellow-200/80 mb-3">
-              AI가 다음과 같은 개선 방법을 제안합니다:
-            </p>
-
-            {/* AI 제안 카드 */}
-            <div className="space-y-2 mb-3">
-              {suspendState.suggestions.map((suggestion) => (
-                <button
-                  key={suggestion.id}
-                  type="button"
-                  onClick={() => handleSuggestionClick(suggestion)}
-                  disabled={isLoading}
-                  className="w-full text-left rounded-md border border-white/10 p-3
-                             hover:bg-white/5 hover:border-yellow-500/50 transition-colors
-                             cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <div className="flex items-start gap-2">
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-white/10 shrink-0 mt-0.5">
-                      {suggestion.actionType === 'refine' ? '\uD83D\uDD04 \ubcf4\uc644' : '\uD83D\uDD00 \uc804\ud658'}
-                    </span>
-                    <span className="text-sm">{suggestion.description}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            {/* 수동 옵션 (접기) */}
-            <details className="text-xs text-white/50">
-              <summary className="cursor-pointer hover:text-white/70 mb-2">
-                직접 입력하기
-              </summary>
-              <div className="space-y-2">
-                {suspendState.availableAgents.length > 0 && (
-                  <div className="flex gap-2 flex-wrap">
-                    {suspendState.availableAgents.map((agent) => (
-                      <button
-                        key={agent.value}
-                        type="button"
-                        disabled={isLoading}
-                        onClick={async () => {
-                          if (!suspendState || isLoading) return;
-                          setMessages((prev) => [
-                            ...prev,
-                            { id: nextId(), role: 'user', content: `${agent.label}(으)로 전환합니다.` },
-                          ]);
-                          await sendToWorkflow({
-                            runId: suspendState.runId,
-                            resumeData: { action: 'reroute', targetAgent: agent.value },
-                          });
-                        }}
-                        className="rounded-full px-3 py-1 text-xs bg-white/10 hover:bg-white/20
-                                   disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {agent.label}(으)로 전환
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <p className="text-white/40">
-                  텍스트를 입력하고 전송하면 같은 Agent에 추가 지시를 보냅니다.
-                </p>
-              </div>
-            </details>
-
-            {/* Dismiss 버튼 */}
-            <div className="mt-3 pt-3 border-t border-white/10">
-              <button
-                type="button"
-                onClick={handleDismiss}
-                disabled={isLoading}
-                className="text-xs text-white/40 hover:text-white/60 transition-colors
-                           disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                \u2715 검색을 종료합니다
-              </button>
-            </div>
-          </div>
-        )}
-
         <PromptInput onSubmit={handleSubmit} className="mt-20">
           <PromptInputBody>
             <PromptInputTextarea
-              onChange={(e) => setInput(e.target.value)}
               className="md:leading-10"
-              value={input}
               placeholder={
-                suspendState
-                  ? '추가 지시를 입력하거나 위 제안을 클릭하세요'
-                  : 'Type your message...'
+                suspendState?.hitlType === 'clarify'
+                  ? '답변을 입력하세요...'
+                  : suspendState?.hitlType === 'ambiguous'
+                    ? '위에서 선택하거나 새 질문을 입력하세요'
+                    : 'Type your message...'
               }
               disabled={isLoading}
             />

@@ -80,6 +80,9 @@ export async function initializeMastra(): Promise<{
     workflows: {
       chatWorkflow,
     },
+    memory: {
+      conversationMemory,
+    },
     storage: new PostgresStore({
       id: "mastra",
       connectionString: process.env.DATABASE_URL,
@@ -132,15 +135,21 @@ export async function initializeMastra(): Promise<{
                     inputData: {
                       message: body.resumeData.userFeedback || "",
                     },
+                    initialState: {
+                      executionTargets: [],
+                      executionMode: "parallel" as const,
+                    },
                     requestContext,
                   });
                 } else {
-                  // === Refine / Reroute: suspend된 워크플로우 재개 ===
+                  // === Resume: classify-intent에서 suspend된 워크플로우 재개 ===
+                  // clarify → { userAnswer: "..." }
+                  // ambiguous → { selectedAgent: "..." }
                   const run = await workflow.createRun({
                     runId: body.runId,
                   });
                   result = await run.resume({
-                    step: "quality-check",
+                    step: body.suspendedStep || "classify-intent",
                     resumeData: body.resumeData,
                     requestContext,
                   });
@@ -152,48 +161,56 @@ export async function initializeMastra(): Promise<{
                   inputData: body.inputData || {
                     message: body.message || "",
                   },
+                  initialState: {
+                    executionTargets: [],
+                    executionMode: "parallel" as const,
+                  },
                   requestContext,
                 });
               }
 
-              // Suspended → AI 제안 포함 응답
+              // Suspended → HITL 응답 (classify-intent에서 suspend)
               if (result.status === "suspended") {
-                const suspendPayload =
-                  result.steps?.["quality-check"]?.suspendPayload as
-                    | {
-                        reason?: string;
-                        score?: number;
-                        originalSource?: string;
-                        originalQuery?: string;
-                        suggestions?: Array<{
-                          id: string;
-                          description: string;
-                          actionType: string;
-                          refinedQuery?: string;
-                          targetAgent?: string;
-                        }>;
-                        availableAgents?: Array<{
-                          value: string;
-                          label: string;
-                        }>;
-                      }
-                    | undefined;
+                // suspendPayload는 nested workflow 구조:
+                // result.suspendPayload = { "classify-and-execute": { hitlType, clarifyQuestion, ... } }
+                // 최상위에서 sub-workflow key를 unwrap해야 실제 payload에 접근 가능
+                const rawPayload = result.suspendPayload as Record<string, any> | undefined;
+                const suspendPayload = (
+                  rawPayload?.["classify-and-execute"] ||  // nested workflow unwrap
+                  rawPayload                               // fallback: 직접 payload
+                ) as
+                  | {
+                      hitlType: "clarify" | "ambiguous";
+                      clarifyQuestion?: string;
+                      candidates?: Array<{
+                        planId: string;
+                        label: string;
+                        description: string;
+                        targets: string[];
+                        executionMode: "parallel" | "sequential";
+                        expectedOutcome: string;
+                      }>;
+                      originalMessage?: string;
+                    }
+                  | undefined;
+
+                // suspended path를 클라이언트에 전달 (resume 시 사용)
+                const suspendedStep = result.suspended?.[0];
+
                 return c.json({
                   status: "suspended",
                   runId: result.runId,
-                  reason: suspendPayload?.reason || "품질 검증 실패",
-                  score: suspendPayload?.score ?? 0,
-                  originalSource:
-                    suspendPayload?.originalSource || "unknown",
-                  originalQuery: suspendPayload?.originalQuery || "",
-                  suggestions: suspendPayload?.suggestions || [],
-                  availableAgents: suspendPayload?.availableAgents || [],
+                  suspendedStep,
+                  hitlType: suspendPayload?.hitlType || "clarify",
+                  clarifyQuestion: suspendPayload?.clarifyQuestion,
+                  candidates: suspendPayload?.candidates,
+                  originalMessage: suspendPayload?.originalMessage,
                 });
               }
 
               // Completed — 응답은 finalResponser의 공유 Memory에 자동 기록됨
               const responseText =
-                result.result?.response ||
+                result.result?.response ??
                 "워크플로우가 종료되었습니다.";
 
               return c.json({

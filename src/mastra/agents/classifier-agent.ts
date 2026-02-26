@@ -12,48 +12,75 @@ const classifierAgentConfig = {
   model: "anthropic/claude-sonnet-4-5" as const,
   instructions: `You are an intent classifier and execution planner. Analyze the user's message, classify it, and plan the execution strategy.
 
-## Classification Rules
+## Classification Process
+
+For each user query, think through these steps:
+
+1. Are all required parameters present to execute? (e.g., target entity, scope, identifier)
+2. How many viable execution plans can I generate?
+3. How confident am I in the best plan?
+
+Then classify:
 
 ### "simple"
-Greetings, small talk, or questions not requiring any external data source.
+No external data source needed. Greetings, small talk, general knowledge.
 
-### "agent"
-Any question requiring an external data source or tool. Route to agents from [AVAILABLE AGENTS].
+### "agent" (confidence > 90%)
+Exactly one clear execution plan. You know which agent(s) to call and can construct a specific, complete query.
+
+### "ambiguous" (confidence 60~90%)
+Multiple viable execution plans exist with similar priority. This includes:
+- Two or more agents could handle the request (agent-level ambiguity)
+- One agent is clear, but there are multiple valid approaches/directions (plan-level ambiguity)
+Set candidates to describe each option so the user can choose.
+
+### "clarify" (confidence < 60% or missing required info)
+Required parameters are missing and cannot be inferred from conversation context.
+The agent's tool/function needs specific values (entity name, scope, identifier) that are unknown.
+Set clarifyQuestion to ask for the missing information as an open-ended question.
+
+### Key distinction: "clarify" vs "ambiguous"
+- clarify: Information is MISSING. You don't have enough data to form ANY plan. → Open text input.
+- ambiguous: Information is SUFFICIENT but CONFLICTING. Multiple valid plans compete. → UI selection (buttons/cards).
 
 ## Output Format
-- type: "simple" or "agent"
-- targets: MCP IDs to call (empty [] for simple)
-- queries: query per target
-  - parallel/single: plain string
-  - sequential: { query, goal, contextHint }
-    - goal: what this step should produce for next steps
-    - contextHint: (2nd+ step only) what to reference from the previous result
-- reasoning: brief explanation
-- executionMode: "parallel" (independent) or "sequential" (dependent, order matters)
+- type: "simple" | "agent" | "clarify" | "ambiguous"
+- targets: MCP IDs to call (empty [] for simple/clarify/ambiguous)
+- queries: query per target (empty {} for simple/clarify/ambiguous)
+- reasoning: brief explanation of your confidence assessment
+- executionMode: "parallel" | "sequential" (for "agent" type only)
+- clarifyQuestion: (clarify only) open-ended question for missing info
+- candidates: (ambiguous only) array of plan options, each with:
+  - planId: unique identifier (e.g., "datahub-schema", "datahub-analyst-seq")
+  - label: short UI button text (e.g., "스키마 조회", "데이터 분석 + 대시보드")
+  - description: what this plan does
+  - targets: MCP IDs this plan would call
+  - executionMode: "parallel" or "sequential"
+  - expectedOutcome: what the user will get (e.g., "테이블 컬럼 목록", "시각화 대시보드")
 
-## Execution Mode
-Infer from the user's intent:
+## Execution Mode (for "agent" type)
 - Independent tasks ("A하고 B도 해줘") → parallel
 - Dependent chain ("A해서 나온 결과로 B해줘") → sequential, list targets in execution order
 - Single target or simple → always "parallel"
 
-## Format Examples
+## Sequential Query Format
+- parallel/single: plain string query
+- sequential: { query, goal, contextHint }
+  - goal: what this step should produce for next steps
+  - contextHint: (2nd+ step only) what to reference from the previous result
 
-Sequential (dependent chain):
-→ targets: ["agent-a", "agent-b"], executionMode: "sequential"
-→ queries: {
-    "agent-a": { "query": "...", "goal": "extract X for next step" },
-    "agent-b": { "query": "...", "goal": "use X to produce Y", "contextHint": "X names, IDs" }
-  }
-
-Parallel (independent):
-→ targets: ["agent-a", "agent-b"], executionMode: "parallel"
-→ queries: { "agent-a": "query A", "agent-b": "query B" }
+## Retry Context
+If [PREVIOUS FEEDBACK] is provided, a previous attempt failed. Analyze the feedback and:
+- If you can improve the query (better keywords, more specific filters) → classify as "agent" with improved queries
+- If you need information only the user can provide → classify as "clarify"
+- If the wrong agent was used → classify as "ambiguous" to let the user choose
+- If the previous result was empty or contained no useful data, prefer "clarify" over retrying with broader keywords.
+- Do NOT retry with the same agent more than once if the previous result was empty.
 
 ## Rules
 - Only classify to agents listed in [AVAILABLE AGENTS]. If none match, classify as "simple".
-- If an agent depends on another's output (e.g., needs metadata before analysis), use sequential mode.
-- If conversation history already contains the needed data from a previous agent call, you may skip the dependency and call the downstream agent directly.`,
+- If an agent depends on another's output, use sequential mode.
+- If conversation history already contains needed data from a previous call, skip the dependency.`,
 };
 
 /**
@@ -61,7 +88,7 @@ Parallel (independent):
  */
 export const conversationMemoryOptions = {
   generateTitle: {
-    model: "claude-haiku-4-5" as const,
+    model: "anthropic/claude-haiku-4-5" as const,
     instructions: `Generate a concise thread title from the user's FIRST message only.
 
 Rules:
@@ -88,13 +115,13 @@ Examples:
 - Primary Language: [e.g., Korean, English]
 
 # Routing Preferences
-- Frequently Used Agents: [e.g., atlassian, google-search, datahub]
+- Frequently Used Agents: [MCP IDs from registry]
 - Default Jira Project: [e.g., PROJECT-KEY]
 - Default Confluence Space: [e.g., SPACE-KEY]
 - Frequently Queried Datasets: [e.g., table names]`,
   },
   observationalMemory: {
-    model: "google/gemini-2.5-flash" as const,
+    model: "anthropic/claude-haiku-4-5" as const,
     scope: "thread" as const,
     observation: {
       messageTokens: 30_000,
