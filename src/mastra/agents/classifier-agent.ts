@@ -46,7 +46,7 @@ Set clarifyQuestion to ask for the missing information as an open-ended question
 ## Output Format
 - type: "simple" | "agent" | "clarify" | "ambiguous"
 - targets: MCP IDs to call (empty [] for simple/clarify/ambiguous)
-- queries: query per target (empty {} for simple/clarify/ambiguous)
+- queries: array of { agentId, query } (or { agentId, query, goal, contextHint } for sequential). Empty [] for simple/clarify/ambiguous
 - reasoning: brief explanation of your confidence assessment
 - executionMode: "parallel" | "sequential" (for "agent" type only)
 - clarifyQuestion: (clarify only) open-ended question for missing info
@@ -63,9 +63,9 @@ Set clarifyQuestion to ask for the missing information as an open-ended question
 - Dependent chain ("A해서 나온 결과로 B해줘") → sequential, list targets in execution order
 - Single target or simple → always "parallel"
 
-## Sequential Query Format
-- parallel/single: plain string query
-- sequential: { query, goal, contextHint }
+## Query Format
+- Each query is an object: { agentId, query }
+- For sequential mode, add goal and contextHint: { agentId, query, goal, contextHint }
   - goal: what this step should produce for next steps
   - contextHint: (2nd+ step only) what to reference from the previous result
 
@@ -110,15 +110,25 @@ Examples:
     scope: "resource" as const,
     template: `# User Profile
 - Name:
-- Role: [e.g., Developer, PM, Designer]
+- Role:
 - Team:
-- Primary Language: [e.g., Korean, English]
+- Primary Language:
 
 # Routing Preferences
-- Frequently Used Agents: [MCP IDs from registry]
-- Default Jira Project: [e.g., PROJECT-KEY]
-- Default Confluence Space: [e.g., SPACE-KEY]
-- Frequently Queried Datasets: [e.g., table names]`,
+- Frequently Used Agents:
+- Default Jira Project:
+- Default Confluence Space:
+- Frequently Queried Datasets:
+
+<!--
+RULES — You MUST follow these when updating working memory:
+1. ONLY use the sections above. Do NOT add new sections (no "Conversation Context", "Key Tasks", "Documents Found", etc.).
+2. Keep each field to a single short value (e.g., "DP", "cp", "atlassian, datahub").
+3. "Frequently Queried Datasets" — max 10 table names, comma-separated.
+4. "Frequently Used Agents" — max 5 MCP IDs, comma-separated.
+5. NEVER store conversation history, query results, task lists, or detailed data here. That belongs in observational memory (thread scope).
+6. Total working memory must stay under 500 characters (excluding this rules block).
+-->`,
   },
   observationalMemory: {
     model: "anthropic/claude-haiku-4-5" as const,

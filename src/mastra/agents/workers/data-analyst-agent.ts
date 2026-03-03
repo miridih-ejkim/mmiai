@@ -139,8 +139,3 @@ export function createDataAnalystAgent(tools: ToolsInput = {}) {
     },
   });
 }
-
-/**
- * 기본 Agent (Shaper REST API Tool만 내장)
- */
-export const dataAnalystAgent = createDataAnalystAgent();

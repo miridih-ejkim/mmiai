@@ -150,8 +150,12 @@ export class McpConnectionManager {
         lastUsed: Date.now(),
       });
 
+      const toolCount = Object.values(toolsets).reduce(
+        (sum, ts) => sum + Object.keys(ts as Record<string, unknown>).length,
+        0,
+      );
       console.log(
-        `[McpConnectionManager] Connected to ${mcpId} (${Object.keys(toolsets).length} tools)`,
+        `[McpConnectionManager] Connected to ${mcpId} (${toolCount} tools in ${Object.keys(toolsets).length} toolset(s))`,
       );
       return toolsets;
     } catch (error) {

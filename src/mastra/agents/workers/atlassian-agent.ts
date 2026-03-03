@@ -61,8 +61,3 @@ export function createAtlassianAgent(tools: ToolsInput = {}) {
     tools,
   });
 }
-
-/**
- * 도구 없는 기본 Agent (테스트/개발용)
- */
-export const atlassianAgent = createAtlassianAgent();
