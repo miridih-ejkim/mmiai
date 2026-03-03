@@ -33,7 +33,7 @@ const analyzeOutputSchema = z.object({
       .min(0)
       .max(1)
       .describe("0-1, how well the response addresses the user's actual question"),
-    reason: z.string().describe("Brief explanation in Korean, max 1 sentence"),
+    reason: z.string().describe("Korean, max 15 words"),
   }),
   completeness: z.object({
     score: z
@@ -41,7 +41,7 @@ const analyzeOutputSchema = z.object({
       .min(0)
       .max(1)
       .describe("0-1, how thoroughly all aspects of the question are covered"),
-    reason: z.string().describe("Brief explanation in Korean, max 1 sentence"),
+    reason: z.string().describe("Korean, max 15 words"),
   }),
   usefulness: z.object({
     score: z
@@ -51,7 +51,7 @@ const analyzeOutputSchema = z.object({
       .describe(
         "0-1, whether the response provides actionable information vs empty/error/no-results",
       ),
-    reason: z.string().describe("Brief explanation in Korean, max 1 sentence"),
+    reason: z.string().describe("Korean, max 15 words"),
   }),
   coherence: z.object({
     score: z
@@ -59,7 +59,7 @@ const analyzeOutputSchema = z.object({
       .min(0)
       .max(1)
       .describe("0-1, structural quality, readability, logical organization"),
-    reason: z.string().describe("Brief explanation in Korean, max 1 sentence"),
+    reason: z.string().describe("Korean, max 15 words"),
   }),
   improvementSuggestion: z
     .string()
@@ -118,7 +118,11 @@ Each dimension gets a score from 0.0 to 1.0.
 
 ### improvementSuggestion:
 Write ONE specific, actionable suggestion in Korean for how the system could improve this response.
-Examples: "더 구체적인 검색 키워드 사용 필요", "다른 Agent(datahub) 활용 필요", "검색 범위를 넓혀서 재시도 필요"`;
+Examples: "더 구체적인 검색 키워드 사용 필요", "다른 Agent(datahub) 활용 필요", "검색 범위를 넓혀서 재시도 필요"
+
+### IMPORTANT — Output Format:
+You MUST return ALL 5 fields: relevance, completeness, usefulness, coherence, improvementSuggestion.
+Keep each reason under 15 words. Do NOT skip any field.`;
     },
   })
   .generateScore(({ results }) => {

@@ -7,7 +7,7 @@ import { workflowStateSchema, type RetryEntry } from "../state";
  * Sequential 모드에서 각 단계의 구조화된 쿼리
  * goal과 contextHint로 단계 간 맥락 전달을 강화
  */
-export const sequentialQuerySchema = z.object({
+const sequentialQuerySchema = z.object({
   query: z.string().describe("이 Agent에게 전달할 기본 쿼리"),
   goal: z.string().describe("이 단계의 목표 (예: '데이터 관련 문서를 찾고 테이블 이름 추출')"),
   contextHint: z
@@ -36,9 +36,16 @@ export const classificationOutputSchema = z.object({
     .array(z.string())
     .describe("호출할 MCP ID 목록 ([AVAILABLE AGENTS]에서 선택)"),
   queries: z
-    .record(z.string(), z.union([z.string(), sequentialQuerySchema]))
+    .array(
+      z.object({
+        agentId: z.string(),
+        query: z.string(),
+        goal: z.string().optional(),
+        contextHint: z.string().optional(),
+      }),
+    )
     .describe(
-      "각 agent에게 전달할 쿼리. parallel/single이면 string, sequential이면 {query, goal, contextHint} 객체",
+      "각 agent에게 전달할 쿼리 배열. agentId로 대상 지정, sequential이면 goal/contextHint 포함",
     ),
   reasoning: z.string().describe("분류 판단 근거"),
   executionMode: z
@@ -83,10 +90,53 @@ export const classificationOutputSchema = z.object({
 
 export type ClassificationOutput = z.infer<typeof classificationOutputSchema>;
 
-/** Candidate 타입 (plan-level) */
-export type PlanCandidate = NonNullable<
-  ClassificationOutput["candidates"]
->[number];
+/**
+ * Raw JSON Schema for classifier structuredOutput.
+ * Zod v4 → JSON Schema 변환이 additionalProperties 규칙을 위반하므로
+ * Claude native constrained decoding 호환을 위해 직접 정의합니다.
+ */
+const classificationJsonSchema: import("json-schema").JSONSchema7 = {
+  type: "object",
+  properties: {
+    type: { type: "string", enum: ["simple", "agent", "clarify", "ambiguous"] },
+    targets: { type: "array", items: { type: "string" } },
+    queries: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          agentId: { type: "string" },
+          query: { type: "string" },
+          goal: { type: "string" },
+          contextHint: { type: "string" },
+        },
+        required: ["agentId", "query"],
+        additionalProperties: false,
+      },
+    },
+    reasoning: { type: "string" },
+    executionMode: { type: "string", enum: ["parallel", "sequential"] },
+    clarifyQuestion: { type: "string" },
+    candidates: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          planId: { type: "string" },
+          label: { type: "string" },
+          description: { type: "string" },
+          targets: { type: "array", items: { type: "string" } },
+          executionMode: { type: "string", enum: ["parallel", "sequential"] },
+          expectedOutcome: { type: "string" },
+        },
+        required: ["planId", "label", "description", "targets", "expectedOutcome"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["type", "targets", "queries", "reasoning"],
+  additionalProperties: false,
+};
 
 // ─── Suspend / Resume Schemas ───
 
@@ -143,7 +193,7 @@ function validateClassification(
       ...result,
       type: "simple",
       targets: [],
-      queries: {},
+      queries: [],
       reasoning: `${result.reasoning} (모든 대상 Agent가 비활성 상태이므로 simple로 변경)`,
     };
   }
@@ -185,6 +235,7 @@ export const classifyIntentStep = createStep({
     requestContext,
     getInitData,
     state,
+    setState,
   }) => {
     const activeMcpIds =
       (requestContext?.get("activeMcpIds") as string[] | undefined) ||
@@ -197,7 +248,14 @@ export const classifyIntentStep = createStep({
       "default-thread";
 
     const initData = getInitData<{ message: string }>();
-    const originalMessage = initData?.message || inputData.message || "";
+    // dountil 2차+ iteration에서는 inputData.message가 없으므로 state에서 복원
+    const originalMessage =
+      initData?.message || inputData.message || state?.originalMessage || "";
+
+    // 원본 메시지를 state에 저장 (첫 iteration에서만 실제 저장됨)
+    if (originalMessage && !state?.originalMessage) {
+      await setState({ ...state, originalMessage });
+    }
 
     // === Resume 경로 ===
     if (resumeData) {
@@ -234,10 +292,7 @@ export const classifyIntentStep = createStep({
           });
         }
 
-        const queries: Record<string, string> = {};
-        for (const t of targets) {
-          queries[t] = originalMessage;
-        }
+        const queries = targets.map(t => ({ agentId: t, query: originalMessage }));
 
         return {
           type: "agent" as const,
@@ -308,28 +363,27 @@ async function classifyMessage(params: {
     retryHistory,
   } = params;
 
-  // 활성 MCP만 포함한 동적 프롬프트 구성
+  // 활성 MCP만 포함한 동적 시스템 컨텍스트 구성
+  // system 옵션으로 전달하여 Memory에 role=user로 저장되는 것을 방지
   const activeAgentDescriptions = MCP_REGISTRY.filter((entry) =>
     activeMcpIds.includes(entry.id),
   )
     .map((entry) => `- "${entry.id}": ${entry.description}`)
     .join("\n");
 
-  let dynamicPrompt = `${message}
-
-[AVAILABLE AGENTS]
+  let systemContext = `[AVAILABLE AGENTS]
 ${activeAgentDescriptions || "(none — classify as simple)"}`;
 
   // 재시도 이력이 있으면 전체 이력 주입
   if (retryHistory.length > 0) {
     const historyLines = retryHistory.map((entry) => {
-      const querySummary = Object.entries(entry.queries ?? {})
-        .map(([agent, q]) => `${agent}="${q}"`)
+      const querySummary = (entry.queries ?? [])
+        .map((q) => `${q.agentId}="${q.query}"`)
         .join(", ");
       return `- Attempt ${entry.attempt}: targets=[${entry.targets.join(", ")}] queries={${querySummary}} mode=${entry.executionMode} reason="${entry.reason}"${entry.confidence != null ? ` confidence=${entry.confidence.toFixed(2)}` : ""}`;
     }).join("\n");
 
-    dynamicPrompt += `
+    systemContext += `
 
 [RETRY HISTORY]
 이전 ${retryHistory.length}회 시도의 품질이 부족했습니다. 각 시도의 피드백을 참고하여 개선하세요:
@@ -337,31 +391,84 @@ ${historyLines}
 
 ${previousFeedback ? `최신 피드백:\n${previousFeedback}\n` : ""}같은 Agent를 다시 사용해도 좋지만, 피드백에서 지적된 부족한 부분을 보완할 수 있도록 쿼리나 접근 방식을 조정하세요.`;
   } else if (previousFeedback) {
-    dynamicPrompt += `
+    systemContext += `
 
 [PREVIOUS FEEDBACK]
 이전 실행 결과의 품질이 부족했습니다. 아래 피드백을 참고하여 부족한 부분을 보완하세요:
 ${previousFeedback}`;
   }
 
-  dynamicPrompt += `
+  systemContext += `
 
 IMPORTANT: You may ONLY route to agents listed above. If no agents are available, classify as "simple".`;
 
   const classifier = mastra.getAgent("classifierAgent");
-  const result = await classifier.generate(dynamicPrompt, {
-    memory: {
-      resource: userId,
-      thread: threadId,
-    },
-    structuredOutput: {
-      schema: classificationOutputSchema,
-    },
-  });
+
+  let classification: ClassificationOutput;
+  try {
+    const result = await classifier.generate(message, {
+      system: systemContext,
+      memory: {
+        resource: userId,
+        thread: threadId,
+      },
+      structuredOutput: {
+        schema: classificationJsonSchema,
+      },
+    });
+    classification = result.object as ClassificationOutput;
+  } catch (err: any) {
+    // Mastra structured output 검증 실패 시 복구 시도
+    // 발생 케이스:
+    // 1) LLM이 { "$PARAMETER_NAME": { 실제_데이터 } } 형태로 응답
+    // 2) LLM이 불완전한 JSON 반환 (일부 필드 undefined)
+    // 3) 기타 structured output 검증 실패
+    const isStructuredOutputError =
+      err?.id === "STRUCTURED_OUTPUT_SCHEMA_VALIDATION_FAILED" ||
+      err?.details?.value != null;
+
+    if (isStructuredOutputError) {
+      try {
+        const raw = err.details?.value
+          ? (typeof err.details.value === "string"
+              ? JSON.parse(err.details.value)
+              : err.details.value)
+          : null;
+
+        if (raw) {
+          // $PARAMETER_NAME wrapper 제거 후 파싱 시도
+          const unwrapped = raw["$PARAMETER_NAME"] || raw;
+          const parsed = classificationOutputSchema.parse(unwrapped);
+          console.warn("[classify-intent] Recovered from structured output validation failure");
+          classification = parsed;
+        } else {
+          throw new Error("No recoverable value in error details");
+        }
+      } catch {
+        // 복구 실패 → simple로 fallback (워크플로우 중단 방지)
+        console.error("[classify-intent] Failed to recover from structured output error:", err.message);
+        classification = {
+          type: "simple",
+          targets: [],
+          queries: [],
+          reasoning: `분류 실패 (${err.message}). 직접 응답으로 전환합니다.`,
+          executionMode: "parallel",
+        };
+      }
+    } else {
+      // structured output이 아닌 다른 오류도 simple fallback으로 처리
+      // 워크플로우 전체가 실패하는 것보다 simple 응답이 나은 UX
+      console.error("[classify-intent] Unexpected error, falling back to simple:", err.message);
+      classification = {
+        type: "simple",
+        targets: [],
+        queries: [],
+        reasoning: `분류 중 오류 발생 (${err?.message || "unknown"}). 직접 응답으로 전환합니다.`,
+        executionMode: "parallel",
+      };
+    }
+  }
 
   // 후처리: 비활성 MCP 필터링
-  return validateClassification(
-    result.object as ClassificationOutput,
-    activeMcpIds,
-  );
+  return validateClassification(classification, activeMcpIds);
 }

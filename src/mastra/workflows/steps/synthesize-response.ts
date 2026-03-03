@@ -1,5 +1,6 @@
 import { createStep } from "@mastra/core/workflows";
 import { z } from "zod";
+import { workflowStateSchema } from "../state";
 
 /**
  * Step 3: 응답 합성
@@ -18,7 +19,8 @@ export const synthesizeResponseStep = createStep({
   outputSchema: z.object({
     response: z.string(),
   }),
-  execute: async ({ inputData, mastra, getInitData, requestContext }) => {
+  stateSchema: workflowStateSchema,
+  execute: async ({ inputData, mastra, getInitData, requestContext, state }) => {
     const initData = getInitData<{ message: string }>();
     const agent = mastra!.getAgent("finalResponserAgent");
 
@@ -37,10 +39,11 @@ export const synthesizeResponseStep = createStep({
 
     if (source === "direct") {
       // simple 타입: 사용자 메시지를 기반으로 직접 응답
-      prompt = initData?.message || content;
+      prompt = initData?.message || state?.originalMessage || content;
     } else {
       // Agent 결과를 기반으로 응답 합성
-      prompt = `사용자 질문: ${initData?.message || ""}
+      const userQuestion = initData?.message || state?.originalMessage || "";
+      prompt = `사용자 질문: ${userQuestion}
 
 검색 결과 (출처: ${source}):
 ${content}

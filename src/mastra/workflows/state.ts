@@ -12,7 +12,10 @@ const retryEntrySchema = z.object({
   /** 실행 모드 */
   executionMode: z.enum(["parallel", "sequential"]),
   /** 각 Agent에게 전달한 쿼리 */
-  queries: z.record(z.string(), z.string()).default({}),
+  queries: z.array(z.object({
+    agentId: z.string(),
+    query: z.string(),
+  })).default([]),
   /** 실패 사유 */
   reason: z.string(),
   /** Worker Agent 자기 확신도 (0.0-1.0, structuredOutput으로 수집) */
@@ -30,12 +33,17 @@ export type RetryEntry = z.infer<typeof retryEntrySchema>;
  * 이미 시도한 전략을 피하고, 개선된 전략을 수립한다.
  */
 export const workflowStateSchema = z.object({
+  /** 원본 사용자 메시지 (dountil 루프 across iteration 유지용) */
+  originalMessage: z.string().optional(),
   /** 실행된 Agent 목록 (MCP ID) */
   executionTargets: z.array(z.string()).default([]),
   /** 실행 모드 (parallel | sequential) */
   executionMode: z.enum(["parallel", "sequential"]).default("parallel"),
   /** 이번 시도에서 각 Agent에게 전달한 쿼리 (agent-step에서 기록) */
-  executionQueries: z.record(z.string(), z.string()).default({}),
+  executionQueries: z.array(z.object({
+    agentId: z.string(),
+    query: z.string(),
+  })).default([]),
   /** 이전 루프 실행 결과 피드백 (최신, quality-check에서 기록) */
   previousFeedback: z.string().optional(),
   /** 현재 재시도 횟수 (0-based, quality-check에서 증가) */

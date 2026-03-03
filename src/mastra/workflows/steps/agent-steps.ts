@@ -38,6 +38,20 @@ const workerOutputSchema = z.object({
 });
 
 /**
+ * Raw JSON Schema for worker structuredOutput.
+ * Zod v4 → JSON Schema 변환 우회용 (Claude constrained decoding 호환).
+ */
+const workerOutputJsonSchema: import("json-schema").JSONSchema7 = {
+  type: "object",
+  properties: {
+    content: { type: "string" },
+    confidence: { type: "number" },
+  },
+  required: ["content", "confidence"],
+  additionalProperties: false,
+};
+
+/**
  * Direct Response Step (simple 분기)
  * Agent 호출 없이 Classifier의 reasoning을 직접 전달
  */
@@ -70,7 +84,8 @@ export const agentStep = createStep({
   stateSchema: workflowStateSchema,
   execute: async ({ inputData, mastra, getInitData, requestContext, state, setState }) => {
     const initData = getInitData<{ message: string }>();
-    const userMessage = initData?.message || "";
+    // dountil 2차+ iteration에서는 initData.message가 없으므로 state에서 복원
+    const userMessage = initData?.message || state?.originalMessage || "";
     const activeMcpIds =
       (requestContext?.get("activeMcpIds") as string[] | undefined) ||
       getAllMcpIds();
@@ -93,15 +108,11 @@ export const agentStep = createStep({
       activeTargets.length === 1 ? activeTargets[0] : "multi-agent";
 
     // 실행 계획을 workflow state에 기록 → quality-check가 참조
-    // queries를 plain string으로 정규화하여 기록
-    const flatQueries: Record<string, string> = {};
-    for (const t of activeTargets) {
-      const raw = inputData.queries[t];
-      flatQueries[t] =
-        typeof raw === "object" && raw !== null
-          ? (raw as SequentialQuery).query
-          : (raw as string) || userMessage;
-    }
+    // queries를 plain {agentId, query} 배열로 정규화하여 기록
+    const flatQueries = activeTargets.map((t) => {
+      const entry = inputData.queries.find((q) => q.agentId === t);
+      return { agentId: t, query: entry?.query || userMessage };
+    });
     // 기존 state(retryCount, retryHistory 등)를 보존하면서 targets/mode/queries 업데이트
     await setState({
       ...state,
@@ -120,6 +131,7 @@ export const agentStep = createStep({
         let previousResult = "";
         const allResults: string[] = [];
         let lastConfidence: number | undefined;
+        let hasSuccessfulResult = false;
 
         for (const target of activeTargets) {
           const entry = getRegistryEntry(target);
@@ -129,12 +141,21 @@ export const agentStep = createStep({
           const mcpId = entry.mcpId || target;
           const toolsets = await mcpConnectionManager.getToolsets(mcpId);
 
-          // queries 값이 string이면 기본 쿼리, object이면 SequentialQuery
-          const rawQuery = inputData.queries[target];
-          const queryPlan: SequentialQuery =
-            typeof rawQuery === "object" && rawQuery !== null
-              ? (rawQuery as SequentialQuery)
-              : { query: (rawQuery as string) || userMessage, goal: "" };
+          // MCP 도구가 없으면 즉시 실패 (도구 없이 Agent 실행 방지)
+          const toolCount = Object.values(toolsets).reduce(
+            (sum, ts) => sum + Object.keys(ts).length, 0,
+          );
+          if (toolCount === 0) {
+            const msg = `[${entry.name}] MCP 서버에 연결할 수 없거나 도구를 로드하지 못했습니다. 환경변수(MCP 서버 URL)를 확인하세요.`;
+            allResults.push(msg);
+            continue;
+          }
+
+          // queries 배열에서 해당 agent의 쿼리 항목 조회
+          const queryEntry = inputData.queries.find((q) => q.agentId === target);
+          const queryPlan: SequentialQuery = queryEntry
+            ? { query: queryEntry.query, goal: queryEntry.goal || "", contextHint: queryEntry.contextHint }
+            : { query: userMessage, goal: "" };
 
           let prompt: string;
           if (previousResult && queryPlan.contextHint) {
@@ -152,11 +173,43 @@ export const agentStep = createStep({
               : queryPlan.query;
           }
 
-          const result = await agent.generate(prompt, {
-            toolsets,
-            structuredOutput: { schema: workerOutputSchema },
-          });
-          const output = result.object as z.infer<typeof workerOutputSchema>;
+          console.log(`[agent-step] Calling ${entry.name} (${mcpId}) with ${toolCount} tools`);
+
+          let output: z.infer<typeof workerOutputSchema>;
+          try {
+            const result = await agent.generate(prompt, {
+              maxSteps: 10,
+              toolsets,
+              structuredOutput: {
+                schema: workerOutputJsonSchema,
+                model: "anthropic/claude-haiku-4-5",
+              },
+            });
+            output = result.object as z.infer<typeof workerOutputSchema>;
+          } catch (genErr: any) {
+            // Worker Agent도 $PARAMETER_NAME 래핑 에러 발생 가능
+            if (genErr?.details?.value) {
+              try {
+                const raw = typeof genErr.details.value === "string"
+                  ? JSON.parse(genErr.details.value)
+                  : genErr.details.value;
+                const unwrapped = raw["$PARAMETER_NAME"] || raw;
+                const parsed = workerOutputSchema.parse(unwrapped);
+                console.warn(`[agent-step] ${entry.name}: Recovered from structured output error`);
+                output = parsed;
+              } catch {
+                console.error(`[agent-step] ${entry.name}: Failed to recover from structured output error:`, genErr.message);
+                allResults.push(`[${entry.name}] 응답 파싱 오류: ${genErr.message}`);
+                continue;
+              }
+            } else {
+              console.error(`[agent-step] ${entry.name}: generate() error:`, genErr.message);
+              allResults.push(`[${entry.name}] 오류: ${genErr.message}`);
+              continue;
+            }
+          }
+
+          console.log(`[agent-step] ${entry.name} result: confidence=${output.confidence}, content length=${output.content.length}`);
           previousResult = output.content;
           allResults.push(
             activeTargets.length === 1
@@ -164,13 +217,14 @@ export const agentStep = createStep({
               : `[${entry.name}]\n${output.content}`,
           );
           lastConfidence = output.confidence;
+          hasSuccessfulResult = true;
         }
 
         const merged = allResults.join("\n\n---\n\n");
         return {
           source: sourceLabel,
           content: merged || "결과를 생성하지 못했습니다.",
-          success: merged.length > 0,
+          success: hasSuccessfulResult,
           confidence: lastConfidence,
         };
       } else {
@@ -186,16 +240,41 @@ export const agentStep = createStep({
               const mcpId = entry.mcpId || target;
               const toolsets =
                 await mcpConnectionManager.getToolsets(mcpId);
-              const rawQuery = inputData.queries[target];
-              const query =
-                typeof rawQuery === "object" && rawQuery !== null
-                  ? (rawQuery as SequentialQuery).query
-                  : (rawQuery as string) || userMessage;
-              const result = await agent.generate(query, {
-                toolsets,
-                structuredOutput: { schema: workerOutputSchema },
-              });
-              const output = result.object as z.infer<typeof workerOutputSchema>;
+
+              // MCP 도구가 없으면 즉시 실패 (도구 없이 Agent 실행 방지)
+              const toolCount = Object.values(toolsets).reduce(
+                (sum, ts) => sum + Object.keys(ts as Record<string, unknown>).length, 0,
+              );
+              if (toolCount === 0) {
+                return `[${entry.name}] MCP 서버에 연결할 수 없거나 도구를 로드하지 못했습니다.`;
+              }
+
+              const queryEntry = inputData.queries.find((q) => q.agentId === target);
+              const query = queryEntry?.query || userMessage;
+              let output: z.infer<typeof workerOutputSchema>;
+              try {
+                const result = await agent.generate(query, {
+                  maxSteps: 10,
+                  toolsets,
+                  structuredOutput: {
+                    schema: workerOutputJsonSchema,
+                    model: "anthropic/claude-haiku-4-5",
+                  },
+                });
+                output = result.object as z.infer<typeof workerOutputSchema>;
+              } catch (genErr: any) {
+                // $PARAMETER_NAME 래핑 에러 복구
+                if (genErr?.details?.value) {
+                  const raw = typeof genErr.details.value === "string"
+                    ? JSON.parse(genErr.details.value)
+                    : genErr.details.value;
+                  const unwrapped = raw["$PARAMETER_NAME"] || raw;
+                  output = workerOutputSchema.parse(unwrapped);
+                  console.warn(`[agent-step] ${entry.name}: Recovered from structured output error (parallel)`);
+                } else {
+                  throw genErr;
+                }
+              }
               confidences.push(output.confidence);
               return `[${entry.name}]\n${output.content}`;
             } catch (error) {
