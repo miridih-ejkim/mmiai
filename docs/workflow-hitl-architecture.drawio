@@ -1,22 +1,22 @@
-<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36" version="29.5.3">
-  <diagram id="workflow-hitl" name="Chat Workflow — dountil + Classifier HITL + Scorers">
-    <mxGraphModel dx="4532" dy="3093" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1600" math="0" shadow="0">
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36" version="29.5.6">
+  <diagram id="workflow-hitl" name="Chat Workflow — dountil + Classifier HITL + LLM Judge">
+    <mxGraphModel dx="4141" dy="2880" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1600" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
         <mxCell id="o4QgxmDZ_h19-OYWXaL5-3" connectable="0" parent="1" style="group" value="" vertex="1">
-          <mxGeometry height="1014" width="2156" x="-1090" y="-250" as="geometry" />
+          <mxGeometry height="1041" width="2156" x="-1130" y="-214" as="geometry" />
         </mxCell>
         <mxCell id="o4QgxmDZ_h19-OYWXaL5-8" connectable="0" parent="o4QgxmDZ_h19-OYWXaL5-3" style="group" value="" vertex="1">
-          <mxGeometry height="1014" width="2155.61" as="geometry" />
+          <mxGeometry height="1038" width="2155.61" y="3" as="geometry" />
         </mxCell>
         <mxCell id="hitl-bg" parent="o4QgxmDZ_h19-OYWXaL5-8" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF3E0;strokeColor=#E65100;strokeWidth=2;dashed=1;opacity=40;fontStyle=0" value="" vertex="1">
-          <mxGeometry height="350" width="602" y="220" as="geometry" />
+          <mxGeometry height="360" width="602" y="210" as="geometry" />
         </mxCell>
         <mxCell id="o4QgxmDZ_h19-OYWXaL5-9" connectable="0" parent="o4QgxmDZ_h19-OYWXaL5-8" style="group" value="" vertex="1">
-          <mxGeometry height="1014" width="2125.61" x="30" as="geometry" />
+          <mxGeometry height="1038" width="2125.61" x="30" as="geometry" />
         </mxCell>
-        <mxCell id="title" parent="o4QgxmDZ_h19-OYWXaL5-9" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=22;fontStyle=1;fontColor=#333333;" value="dountil Loop + Planner HITL + Quality Scorer" vertex="1">
+        <mxCell id="title" parent="o4QgxmDZ_h19-OYWXaL5-9" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=22;fontStyle=1;fontColor=#333333;" value="dountil Loop + Planner HITL + LLM Judge + Confidence Score" vertex="1">
           <mxGeometry height="39" width="1046.7845659163988" x="640.9982636655949" as="geometry" />
         </mxCell>
         <mxCell id="user-msg" parent="o4QgxmDZ_h19-OYWXaL5-9" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fixedSize=1;size=20;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;fontStyle=1;" value="User Message" vertex="1">
@@ -26,12 +26,12 @@
           <mxGeometry height="49" width="221.67202572347267" x="1409.331028938907" y="100" as="geometry" />
         </mxCell>
         <mxCell id="loop-bg" parent="o4QgxmDZ_h19-OYWXaL5-9" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFDE7;strokeColor=#F9A825;strokeWidth=3;dashed=1;opacity=30;fontStyle=0" value="" vertex="1">
-          <mxGeometry height="649" width="990" x="641" y="180" as="geometry" />
+          <mxGeometry height="670" width="990" x="641" y="180" as="geometry" />
         </mxCell>
         <mxCell id="loop-label" parent="o4QgxmDZ_h19-OYWXaL5-9" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontStyle=3;fontColor=#F57F17;" value="dountil Loop (classifyAndExecuteWorkflow) — max 3 iterations" vertex="1">
           <mxGeometry height="24" width="554.1800643086817" x="1149.0069131832797" y="188" as="geometry" />
         </mxCell>
-        <mxCell id="planner" parent="o4QgxmDZ_h19-OYWXaL5-9" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;shadow=1;fontStyle=0" value="&lt;b&gt;Step 1: Planner (classify-intent)&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666666&quot; style=&quot;font-size: 10px;&quot;&gt;Classifier Agent (Haiku)&lt;br&gt;의도 분류 + 실행 계획 + HITL 판단&lt;/font&gt;&lt;br&gt;&lt;font color=&quot;#3949AB&quot; style=&quot;font-size: 10px;&quot;&gt;→ { type, targets[], queries{}, executionMode }&lt;/font&gt;" vertex="1">
+        <mxCell id="planner" parent="o4QgxmDZ_h19-OYWXaL5-9" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;shadow=1;fontStyle=0" value="&lt;b&gt;Step 1: Planner (classify-intent)&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666666&quot; style=&quot;font-size: 10px;&quot;&gt;Classifier Agent (&lt;font color=&quot;#E65100&quot;&gt;&lt;b&gt;Sonnet&lt;/b&gt;&lt;/font&gt;)&lt;br&gt;Confidence Score 기반 분류 + 실행 계획 + HITL 판단&lt;/font&gt;&lt;br&gt;&lt;font color=&quot;#3949AB&quot; style=&quot;font-size: 10px;&quot;&gt;→ { type, targets[], queries{}, executionMode }&lt;/font&gt;" vertex="1">
           <mxGeometry height="74" width="344.823151125402" x="816.4951768488746" y="220" as="geometry" />
         </mxCell>
         <mxCell id="e1" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="user-msg" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#333333;fontStyle=0" target="planner">
@@ -55,7 +55,7 @@
         <mxCell id="e-b2simple" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="branch" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#6c8ebf;fontSize=10;fontStyle=1;" target="direct-resp" value="simple">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="map-step" parent="o4QgxmDZ_h19-OYWXaL5-9" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;shadow=1;fontStyle=0" value="&lt;b&gt;.map()&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot; color=&quot;#666&quot;&gt;branch 출력 정규화&lt;br&gt;→ { source, content, success }&lt;/font&gt;" vertex="1">
+        <mxCell id="map-step" parent="o4QgxmDZ_h19-OYWXaL5-9" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;shadow=1;fontStyle=0" value="&lt;b&gt;.map()&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot; color=&quot;#666&quot;&gt;branch 출력 정규화&lt;br&gt;→ { source, content, success, &lt;font color=&quot;#E65100&quot;&gt;&lt;b&gt;confidence&lt;/b&gt;&lt;/font&gt; }&lt;/font&gt;" vertex="1">
           <mxGeometry height="54" width="295.56270096463027" x="847.2854019292605" y="580" as="geometry" />
         </mxCell>
         <mxCell id="e-d2m" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="direct-resp" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=1.5;strokeColor=#999999;dashed=1;fontStyle=0" target="map-step">
@@ -74,13 +74,13 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="quality-check" parent="o4QgxmDZ_h19-OYWXaL5-9" style="rhombus;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;shadow=1;fontStyle=0" value="&lt;b&gt;quality-check&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#666&quot;&gt;Pure Quality Gate&lt;br&gt;(no suspend)&lt;/font&gt;" vertex="1">
+        <mxCell id="quality-check" parent="o4QgxmDZ_h19-OYWXaL5-9" style="rhombus;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;shadow=1;fontStyle=0" value="&lt;b&gt;quality-check&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#666&quot;&gt;&lt;b&gt;2-Stage Gate&lt;/b&gt;&lt;br&gt;1) Code filter 2) LLM Judge&lt;/font&gt;" vertex="1">
           <mxGeometry height="89" width="221.67202572347267" x="884.2307395498393" y="660" as="geometry" />
         </mxCell>
         <mxCell id="e-m2q" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="map-step" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#333333;fontStyle=0" target="quality-check">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="scorer-quality" parent="o4QgxmDZ_h19-OYWXaL5-9" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3E5F5;strokeColor=#7B1FA2;fontSize=10;shadow=1;fontStyle=0" value="&lt;b&gt;qualityScorer&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Completeness(0.4)&lt;br&gt;Keywords(0.3) + Structure(0.3)&lt;/font&gt;" vertex="1">
+        <mxCell id="scorer-quality" parent="o4QgxmDZ_h19-OYWXaL5-9" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3E5F5;strokeColor=#7B1FA2;fontSize=10;shadow=1;fontStyle=0" value="&lt;b&gt;qualityScorer (&lt;font color=&quot;#E65100&quot;&gt;Judge&lt;/font&gt;)&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Relevance(0.35) + Completeness(0.30)&lt;br&gt;Usefulness(0.20) + Coherence(0.15)&lt;/font&gt;" vertex="1">
           <mxGeometry height="54" width="258.61736334405145" x="1253.6890032154342" y="730" as="geometry" />
         </mxCell>
         <mxCell id="e-scorer-quality" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="scorer-quality" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=1.5;strokeColor=#7B1FA2;dashed=1;fontSize=9;entryX=1;entryY=1;entryDx=0;entryDy=0;fontStyle=0" target="quality-check" value="score">
@@ -90,10 +90,10 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="score-note" parent="o4QgxmDZ_h19-OYWXaL5-9" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;fontStyle=0" value="&lt;font color=&quot;#999999&quot; style=&quot;font-size:10px&quot;&gt;threshold = 0.3&lt;/font&gt;" vertex="1">
-          <mxGeometry height="19" width="123.15112540192926" x="1090.002990353698" y="749" as="geometry" />
+        <mxCell id="score-note" parent="o4QgxmDZ_h19-OYWXaL5-9" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;fontStyle=0" value="&lt;font color=&quot;#999999&quot; style=&quot;font-size:10px&quot;&gt;threshold = 0.4 (prod) / 0.95 (test)&lt;/font&gt;" vertex="1">
+          <mxGeometry height="19" width="200" x="1060" y="749" as="geometry" />
         </mxCell>
-        <mxCell id="e-fail-retry" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=3;strokeColor=#b85450;fontSize=10;fontStyle=1;" value="FAIL → retry&#xa;(state.previousFeedback)">
+        <mxCell id="e-fail-retry" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=3;strokeColor=#b85450;fontSize=10;fontStyle=1;" value="FAIL → retry&#xa;(retryHistory[] 누적 +&#xa;state.previousFeedback)">
           <mxGeometry relative="1" x="-0.1797" as="geometry">
             <mxPoint as="offset" />
             <Array as="points">
@@ -105,11 +105,11 @@
             <mxPoint x="1160" y="260" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="pass-label" parent="o4QgxmDZ_h19-OYWXaL5-9" style="text;html=1;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#82b366;" value="PASS (score ≥ 0.3)&lt;br&gt;&lt;font style=&quot;font-size:9px;font-weight:normal&quot; color=&quot;#666&quot;&gt;or source=&quot;direct&quot; (skip)&lt;/font&gt;" vertex="1">
+        <mxCell id="pass-label" parent="o4QgxmDZ_h19-OYWXaL5-9" style="text;html=1;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#82b366;" value="PASS (score &amp;ge; threshold)&lt;br&gt;&lt;font style=&quot;font-size:9px;font-weight:normal&quot; color=&quot;#666&quot;&gt;or source=&quot;direct&quot; (skip)&lt;/font&gt;" vertex="1">
           <mxGeometry height="29" width="221.67202572347267" x="816.4976205787782" y="755" as="geometry" />
         </mxCell>
         <mxCell id="synthesize" parent="o4QgxmDZ_h19-OYWXaL5-9" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;shadow=1;fontStyle=0" value="&lt;b&gt;synthesize-response&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot; color=&quot;#666&quot;&gt;Final Responser Agent (Haiku)&lt;br&gt;검색 결과 기반 응답 생성&lt;/font&gt;" vertex="1">
-          <mxGeometry height="64" width="307.87781350482317" x="859.6005144694534" y="865" as="geometry" />
+          <mxGeometry height="61" width="307.88" x="844.6" y="895" as="geometry" />
         </mxCell>
         <mxCell id="e-pass" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="quality-check" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=3;strokeColor=#82b366;fontStyle=0" target="synthesize">
           <mxGeometry relative="1" as="geometry">
@@ -120,17 +120,7 @@
           </mxGeometry>
         </mxCell>
         <mxCell id="loop-exit-label" parent="o4QgxmDZ_h19-OYWXaL5-9" style="text;html=1;align=center;verticalAlign=middle;fontSize=10;fontColor=#F57F17;fontStyle=2;" value="dountil exit →" vertex="1">
-          <mxGeometry height="19" width="123.15112540192926" x="892.2307395498393" y="834" as="geometry" />
-        </mxCell>
-        <mxCell id="user-response" parent="o4QgxmDZ_h19-OYWXaL5-9" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fixedSize=1;size=20;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;fontStyle=1;" value="User Response" vertex="1">
-          <mxGeometry height="49" width="246.30225080385853" x="878.0731832797427" y="965" as="geometry" />
-        </mxCell>
-        <mxCell id="e-s2r" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="synthesize" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#333333;exitX=0.455;exitY=1.033;exitDx=0;exitDy=0;exitPerimeter=0;fontStyle=0" target="user-response">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="1001.2243086816723" y="932" />
-            </Array>
-          </mxGeometry>
+          <mxGeometry height="19" width="123.15112540192926" x="892.2307395498393" y="858" as="geometry" />
         </mxCell>
         <mxCell id="e-seq-note" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=1;strokeColor=#F9A825;dashed=1;fontSize=9;fontStyle=0" target="p-sequential">
           <mxGeometry relative="1" as="geometry">
@@ -144,35 +134,32 @@
         <mxCell id="seq-note" parent="o4QgxmDZ_h19-OYWXaL5-9" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=15;fillColor=#FFF8E1;strokeColor=#F9A825;fontSize=9;shadow=1;align=left;fontStyle=0" value="&lt;b&gt;Sequential Planning&lt;/b&gt;&lt;br&gt;&lt;br&gt;Step 1: &lt;font color=&quot;#3949AB&quot;&gt;goal&lt;/font&gt;=&quot;문서에서 테이블 추출&quot;&lt;br&gt;&amp;nbsp;&amp;nbsp;→ Agent 실행&lt;br&gt;&lt;br&gt;Step 2: &lt;font color=&quot;#3949AB&quot;&gt;goal&lt;/font&gt;=&quot;테이블 상세 조회&quot;&lt;br&gt;&amp;nbsp;&amp;nbsp;&lt;font color=&quot;#E65100&quot;&gt;contextHint&lt;/font&gt;=&quot;테이블 이름, URN&quot;&lt;br&gt;&amp;nbsp;&amp;nbsp;+ 이전 결과 프레이밍&lt;br&gt;&amp;nbsp;&amp;nbsp;→ Agent 실행" vertex="1">
           <mxGeometry height="129" width="147.7" x="1352.2900000000002" y="865" as="geometry" />
         </mxCell>
-        <mxCell id="hitl-label" parent="o4QgxmDZ_h19-OYWXaL5-9" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=3;fontColor=#E65100;" value="HITL Zone (classify-intent suspend)" vertex="1">
-          <mxGeometry height="19" width="320.1929260450161" y="236" as="geometry" />
+        <mxCell id="hitl-label" parent="o4QgxmDZ_h19-OYWXaL5-9" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=3;fontColor=#E65100;" value="HITL Zone (classify-intent suspend) — Confidence Score 기반" vertex="1">
+          <mxGeometry height="19" width="400" x="-1" y="223" as="geometry" />
         </mxCell>
-        <mxCell id="hitl-decision" parent="o4QgxmDZ_h19-OYWXaL5-9" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF3E0;strokeColor=#E65100;fontSize=10;shadow=1;fontStyle=0" value="&lt;b&gt;type?&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#666&quot;&gt;clarify | ambiguous&lt;/font&gt;" vertex="1">
-          <mxGeometry height="55" width="130" x="185" y="245" as="geometry" />
+        <mxCell id="hitl-decision" parent="o4QgxmDZ_h19-OYWXaL5-9" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF3E0;strokeColor=#E65100;fontSize=10;shadow=1;fontStyle=0" value="&lt;b&gt;Confidence?&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#666&quot;&gt;&amp;lt;60% clarify&lt;br&gt;60~90% ambiguous&lt;/font&gt;" vertex="1">
+          <mxGeometry height="65" width="140" x="180" y="242" as="geometry" />
         </mxCell>
-        <mxCell id="suspend-clarify" parent="o4QgxmDZ_h19-OYWXaL5-9" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;size=15;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;shadow=1;fontStyle=0" value="&lt;b&gt;suspend(clarify)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#666&quot;&gt;clarifyQuestion 포함&lt;br&gt;→ 어시스턴트 질문 메시지&lt;/font&gt;" vertex="1">
-          <mxGeometry height="59" width="221.67" y="330" as="geometry" />
+        <mxCell id="suspend-clarify" parent="o4QgxmDZ_h19-OYWXaL5-9" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;size=15;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;shadow=1;fontStyle=0" value="&lt;b&gt;suspend(clarify)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#666&quot;&gt;confidence &amp;lt; 60%&lt;br&gt;정보 MISSING (slot filling)&lt;br&gt;→ clarifyQuestion 포함&lt;/font&gt;" vertex="1">
+          <mxGeometry height="69" width="221.67" y="325" as="geometry" />
         </mxCell>
-        <mxCell id="suspend-ambiguous" parent="o4QgxmDZ_h19-OYWXaL5-9" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;size=15;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;shadow=1;fontStyle=0" value="&lt;b&gt;suspend(ambiguous)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#666&quot;&gt;candidates[] 포함&lt;br&gt;→ Agent 선택 카드&lt;/font&gt;" vertex="1">
-          <mxGeometry height="59" width="234" x="316" y="330" as="geometry" />
+        <mxCell id="suspend-ambiguous" parent="o4QgxmDZ_h19-OYWXaL5-9" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;size=15;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;shadow=1;fontStyle=0" value="&lt;b&gt;suspend(ambiguous)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#666&quot;&gt;confidence 60~90%&lt;br&gt;복수 Plan 경합 (CONFLICTING)&lt;br&gt;→ &lt;b&gt;Plan 선택 카드&lt;/b&gt; (candidates[])&lt;/font&gt;" vertex="1">
+          <mxGeometry height="69" width="244" x="311" y="325" as="geometry" />
         </mxCell>
         <mxCell id="resume-clarify" parent="o4QgxmDZ_h19-OYWXaL5-9" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#1565C0;fontSize=10;shadow=1;fontStyle=0" value="&lt;b&gt;resume({ userAnswer })&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;원본 + 답변 결합 → 재분류&lt;/font&gt;" vertex="1">
-          <mxGeometry height="39" width="221.67" y="420" as="geometry" />
-        </mxCell>
-        <mxCell id="resume-ambiguous" parent="o4QgxmDZ_h19-OYWXaL5-9" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#1565C0;fontSize=10;shadow=1;fontStyle=0" value="&lt;b&gt;resume({ selectedAgent })&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;선택 Agent로 분류 즉시 반환&lt;/font&gt;" vertex="1">
-          <mxGeometry height="39" width="246.3" x="309.85" y="427" as="geometry" />
+          <mxGeometry height="39" width="221.67" y="425" as="geometry" />
         </mxCell>
         <mxCell id="e-p2hitl" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="planner" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#E65100;fontSize=9;fontStyle=1;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="hitl-decision" value="clarify / ambiguous">
           <mxGeometry relative="1" x="0.2192" y="3" as="geometry">
             <mxPoint as="offset" />
             <Array as="points">
               <mxPoint x="410" y="257" />
-              <mxPoint x="410" y="273" />
+              <mxPoint x="410" y="275" />
             </Array>
             <mxPoint x="570" y="240" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="e-hitl2clarify" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="hitl-decision" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#b85450;fontSize=9;fontStyle=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="suspend-clarify" value="clarify">
+        <mxCell id="e-hitl2clarify" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="hitl-decision" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#b85450;fontSize=9;fontStyle=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="suspend-clarify" value="&lt;60%">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
               <mxPoint x="250" y="315" />
@@ -181,7 +168,7 @@
             <mxPoint x="250" y="315" as="sourcePoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="e-hitl2ambiguous" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="hitl-decision" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#b85450;fontSize=9;fontStyle=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="suspend-ambiguous" value="ambiguous">
+        <mxCell id="e-hitl2ambiguous" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="hitl-decision" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#b85450;fontSize=9;fontStyle=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="suspend-ambiguous" value="60~90%">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
               <mxPoint x="250" y="315" />
@@ -192,7 +179,7 @@
         <mxCell id="e-sc2rc" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="suspend-clarify" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=1.5;strokeColor=#1565C0;fontSize=9;fontStyle=0" target="resume-clarify" value="사용자 답변">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e-sa2ra" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="suspend-ambiguous" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=1.5;strokeColor=#1565C0;fontSize=9;fontStyle=0" target="resume-ambiguous" value="Agent 선택">
+        <mxCell id="e-sa2ra" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="suspend-ambiguous" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=1.5;strokeColor=#1565C0;fontSize=9;fontStyle=0" target="resume-ambiguous" value="Plan 선택">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="e-rc2p" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="resume-clarify" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#1565C0;dashed=1;fontSize=9;fontStyle=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" target="planner" value="classifyMessage() 재호출&#xa;(4가지 결과 모두 가능)">
@@ -205,18 +192,18 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="resume-note" parent="o4QgxmDZ_h19-OYWXaL5-9" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontStyle=0" value="&lt;font style=&quot;font-size:9px&quot; color=&quot;#1565C0&quot;&gt;※ clarify resume → Planner 재호출 (4가지 결과 모두 가능: simple/agent/clarify/ambiguous)&lt;br&gt;※ ambiguous resume → .branch()로 직행 (항상 type:agent, LLM 호출 없음)&lt;/font&gt;" vertex="1">
-          <mxGeometry height="35" width="500" y="480" as="geometry" />
+        <mxCell id="resume-note" parent="o4QgxmDZ_h19-OYWXaL5-9" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontStyle=0" value="&lt;font style=&quot;font-size:9px&quot; color=&quot;#1565C0&quot;&gt;※ clarify resume → Planner 재호출 (4가지 결과 모두 가능: simple/agent/clarify/ambiguous)&lt;br&gt;※ ambiguous resume → .branch()로 직행 (선택 Plan으로 즉시 실행, LLM 호출 없음)&lt;/font&gt;" vertex="1">
+          <mxGeometry height="35" width="520" y="490" as="geometry" />
         </mxCell>
         <mxCell id="ZHL3l-pg1vPZbNcnAUJd-2" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="resume-ambiguous" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#1565C0;dashed=1;fontSize=9;fontStyle=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="branch" value="">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="433" y="490" />
-              <mxPoint x="995" y="490" />
+              <mxPoint x="433" y="500" />
+              <mxPoint x="995" y="500" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="ZHL3l-pg1vPZbNcnAUJd-3" connectable="0" parent="ZHL3l-pg1vPZbNcnAUJd-2" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=9;" value="{ type:agent, targets:[selected] }&#xa;→ .branch()로 직행 (LLM 호출 없음)" vertex="1">
+        <mxCell id="ZHL3l-pg1vPZbNcnAUJd-3" connectable="0" parent="ZHL3l-pg1vPZbNcnAUJd-2" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=9;" value="{ type:agent, targets:[selectedTargets],&#xa;executionMode: selectedExecutionMode }&#xa;→ .branch()로 직행 (LLM 호출 없음)" vertex="1">
           <mxGeometry relative="1" x="-0.3" as="geometry">
             <mxPoint x="254" as="offset" />
           </mxGeometry>
@@ -230,22 +217,22 @@
         <mxCell id="agent-box" parent="ZHL3l-pg1vPZbNcnAUJd-4" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;dashed=1;shadow=1;fontStyle=0" value="" vertex="1">
           <mxGeometry height="209" width="381.76848874598073" as="geometry" />
         </mxCell>
-        <mxCell id="agent-title" parent="ZHL3l-pg1vPZbNcnAUJd-4" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontColor=#666666;fontStyle=1;" value="agent-step (통합)" vertex="1">
-          <mxGeometry height="19" width="246.30225080385853" x="73.89067524115751" y="5" as="geometry" />
+        <mxCell id="agent-title" parent="ZHL3l-pg1vPZbNcnAUJd-4" style="text;html=1;align=center;verticalAlign=middle;fontSize=12;fontColor=#666666;fontStyle=1;" value="agent-step (통합) — structuredOutput" vertex="1">
+          <mxGeometry height="19" width="300" x="40" y="5" as="geometry" />
         </mxCell>
         <mxCell id="targets-dec" parent="ZHL3l-pg1vPZbNcnAUJd-4" style="rhombus;whiteSpace=wrap;html=1;fillColor=#E8EAF6;strokeColor=#3949AB;fontSize=10;shadow=1;fontStyle=0" value="&lt;b&gt;targets&lt;/b&gt;" vertex="1">
           <mxGeometry height="39" width="110.83601286173634" x="135.46623794212212" y="30" as="geometry" />
         </mxCell>
-        <mxCell id="single-agent" parent="ZHL3l-pg1vPZbNcnAUJd-4" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;shadow=1;fontStyle=0" value="&lt;b&gt;Single Agent&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;1개 Worker 호출&lt;/font&gt;&lt;br&gt;&lt;font color=&quot;#3949AB&quot;&gt;⚡ lazy toolsets&lt;/font&gt;" vertex="1">
+        <mxCell id="single-agent" parent="ZHL3l-pg1vPZbNcnAUJd-4" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;shadow=1;fontStyle=0" value="&lt;b&gt;Single Agent&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;1개 Worker 호출&lt;/font&gt;&lt;br&gt;&lt;font color=&quot;#E65100&quot;&gt;{ content, confidence }&lt;/font&gt;" vertex="1">
           <mxGeometry height="44" width="147.78135048231513" x="24.630225080385912" y="90" as="geometry" />
         </mxCell>
         <mxCell id="exec-mode" parent="ZHL3l-pg1vPZbNcnAUJd-4" style="rhombus;whiteSpace=wrap;html=1;fillColor=#E8EAF6;strokeColor=#3949AB;fontSize=9;shadow=1;fontStyle=0" value="&lt;b&gt;executionMode&lt;/b&gt;" vertex="1">
           <mxGeometry height="34" width="123.15112540192926" x="209.35691318327974" y="90" as="geometry" />
         </mxCell>
-        <mxCell id="p-parallel" parent="ZHL3l-pg1vPZbNcnAUJd-4" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=0" value="&lt;b&gt;Promise.all()&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;독립 병렬 호출&lt;/font&gt;&lt;br&gt;&lt;font color=&quot;#3949AB&quot;&gt;⚡ lazy toolsets&lt;/font&gt;" vertex="1">
+        <mxCell id="p-parallel" parent="ZHL3l-pg1vPZbNcnAUJd-4" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=0" value="&lt;b&gt;Promise.all()&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;독립 병렬 호출&lt;/font&gt;&lt;br&gt;&lt;font color=&quot;#E65100&quot;&gt;min(confidence)&lt;/font&gt;" vertex="1">
           <mxGeometry height="44" width="141.62379421221866" x="24.630225080385912" y="150" as="geometry" />
         </mxCell>
-        <mxCell id="p-sequential" parent="ZHL3l-pg1vPZbNcnAUJd-4" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=0" value="&lt;b&gt;for...of (순차)&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;goal + contextHint&lt;/font&gt;&lt;br&gt;&lt;font color=&quot;#3949AB&quot;&gt;⚡ lazy toolsets&lt;/font&gt;" vertex="1">
+        <mxCell id="p-sequential" parent="ZHL3l-pg1vPZbNcnAUJd-4" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=0" value="&lt;b&gt;for...of (순차)&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;goal + contextHint&lt;/font&gt;&lt;br&gt;&lt;font color=&quot;#E65100&quot;&gt;last(confidence)&lt;/font&gt;" vertex="1">
           <mxGeometry height="44" width="141.62379421221866" x="221.67202572347276" y="150" as="geometry" />
         </mxCell>
         <mxCell id="e-t2single" edge="1" parent="ZHL3l-pg1vPZbNcnAUJd-4" source="targets-dec" style="strokeWidth=1;strokeColor=#82b366;fontSize=9;fontStyle=0" target="single-agent" value="1개">
@@ -260,24 +247,8 @@
         <mxCell id="e-exec2seq" edge="1" parent="ZHL3l-pg1vPZbNcnAUJd-4" source="exec-mode" style="strokeWidth=1;strokeColor=#82b366;fontSize=9;fontStyle=0" target="p-sequential" value="sequential">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e-b2agent" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="branch" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#82b366;fontSize=10;fontStyle=1;" target="targets-dec" value="agent">
+        <mxCell id="e-b2agent" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="branch" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#82b366;fontSize=10;fontStyle=1;" target="targets-dec" value="agent (&gt;90%)">
           <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e-conn2agents" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="mcp-conn-mgr" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=1.5;strokeColor=#3949AB;dashed=1;fontSize=9;fontStyle=0" target="agent-box" value="getToolsets()">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="1660" y="240" />
-              <mxPoint x="1660" y="395" />
-            </Array>
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="e-act2ctx" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="mcp-user-act" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=1.5;strokeColor=#1565C0;dashed=1;fontSize=9;fontStyle=0" target="req-ctx" value="activeMcpIds">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="1716" y="290" />
-              <mxPoint x="1716" y="110" />
-            </Array>
-          </mxGeometry>
         </mxCell>
         <mxCell id="mcp-reg-bg" parent="o4QgxmDZ_h19-OYWXaL5-9" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#F9A825;strokeWidth=2;dashed=1;shadow=1;fontStyle=0" value="" vertex="1">
           <mxGeometry height="289" width="369.45337620578783" x="1749.999067524116" y="80" as="geometry" />
@@ -307,19 +278,19 @@
           <mxGeometry height="29" width="332.508038585209" x="1774.6292926045019" y="320" as="geometry" />
         </mxCell>
         <mxCell id="scorer-bg" parent="o4QgxmDZ_h19-OYWXaL5-9" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3E5F5;strokeColor=#7B1FA2;strokeWidth=2;dashed=1;opacity=40;fontStyle=0" value="" vertex="1">
-          <mxGeometry height="170" width="369.45" x="1756.16" y="400" as="geometry" />
+          <mxGeometry height="230" width="369.45" x="1756.16" y="380" as="geometry" />
         </mxCell>
-        <mxCell id="scorer-title" parent="o4QgxmDZ_h19-OYWXaL5-9" style="text;html=1;align=center;verticalAlign=middle;fontSize=13;fontColor=#7B1FA2;fontStyle=1;" value="Mastra Scorers (createScorer)" vertex="1">
-          <mxGeometry height="24" width="307.87781350482317" x="1780.7868488745985" y="405" as="geometry" />
+        <mxCell id="scorer-title" parent="o4QgxmDZ_h19-OYWXaL5-9" style="text;html=1;align=center;verticalAlign=middle;fontSize=13;fontColor=#7B1FA2;fontStyle=1;" value="Mastra Scorers (createScorer + LLM Judge)" vertex="1">
+          <mxGeometry height="24" width="332" x="1775" y="385" as="geometry" />
         </mxCell>
-        <mxCell id="scorer-info1" parent="o4QgxmDZ_h19-OYWXaL5-9" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;fontStyle=0" value="&lt;font style=&quot;font-size:10px&quot;&gt;&lt;b&gt;qualityScorer&lt;/b&gt;&lt;br&gt;• Completeness (0.4): 키워드 커버 비율&lt;br&gt;• Keyword Coverage (0.3): stop-word 필터 매칭&lt;br&gt;• Structural Quality (0.3): 길이 + 구조 요소&lt;br&gt;&lt;br&gt;quality-check Step에서 Agent 응답 품질 평가&lt;br&gt;code-based (LLM 호출 없음)&lt;/font&gt;" vertex="1">
-          <mxGeometry height="120" width="332.508038585209" x="1774.629292604502" y="435" as="geometry" />
+        <mxCell id="scorer-info1" parent="o4QgxmDZ_h19-OYWXaL5-9" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;fontStyle=0" value="&lt;font style=&quot;font-size:10px&quot;&gt;&lt;b&gt;qualityScorer (Haiku Judge)&lt;/b&gt;&lt;br&gt;Pipeline: analyze(&lt;font color=&quot;#E65100&quot;&gt;LLM&lt;/font&gt;) → generateScore(code) → generateReason(code)&lt;br&gt;&lt;br&gt;• &lt;b&gt;Relevance (0.35)&lt;/b&gt;: 응답이 질문에 실제로 답하는가&lt;br&gt;• &lt;b&gt;Completeness (0.30)&lt;/b&gt;: 질문의 모든 측면을 다루는가&lt;br&gt;• &lt;b&gt;Usefulness (0.20)&lt;/b&gt;: 실질적 정보 vs &quot;결과 없음&quot;&lt;br&gt;• &lt;b&gt;Coherence (0.15)&lt;/b&gt;: 구조, 가독성, 논리적 조직화&lt;br&gt;&lt;br&gt;quality-check Step 2단계에서 의미 기반 평가&lt;br&gt;+ &lt;font color=&quot;#E65100&quot;&gt;improvementSuggestion&lt;/font&gt; → Classifier에 개선 방향 전달&lt;/font&gt;" vertex="1">
+          <mxGeometry height="180" width="340" x="1775" y="415" as="geometry" />
         </mxCell>
         <mxCell id="o4QgxmDZ_h19-OYWXaL5-7" connectable="0" parent="o4QgxmDZ_h19-OYWXaL5-9" style="group" value="" vertex="1">
-          <mxGeometry height="299" width="369.45337620578766" x="1749.9966237942126" y="602" as="geometry" />
+          <mxGeometry height="349" width="369.45337620578766" x="1749.9966237942126" y="640" as="geometry" />
         </mxCell>
         <mxCell id="legend-bg" parent="o4QgxmDZ_h19-OYWXaL5-7" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAFAFA;strokeColor=#CCCCCC;fontStyle=0" value="" vertex="1">
-          <mxGeometry height="299" width="369.45337620578783" as="geometry" />
+          <mxGeometry height="349" width="369.45337620578783" as="geometry" />
         </mxCell>
         <mxCell id="legend-title" parent="o4QgxmDZ_h19-OYWXaL5-7" style="text;html=1;align=center;verticalAlign=middle;fontSize=13;fontColor=#333333;fontStyle=0" value="&lt;b&gt;Legend&lt;/b&gt;" vertex="1">
           <mxGeometry height="24" width="123.15112540192926" x="98.52090032154342" y="5" as="geometry" />
@@ -339,14 +310,14 @@
         <mxCell id="l3" parent="o4QgxmDZ_h19-OYWXaL5-7" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=0" value="" vertex="1">
           <mxGeometry height="19" width="36.94533762057878" x="24.6302250803858" y="85" as="geometry" />
         </mxCell>
-        <mxCell id="l3t" parent="o4QgxmDZ_h19-OYWXaL5-7" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=0" value="Worker Agent (lazy MCP)" vertex="1">
-          <mxGeometry height="19" width="209.35691318327977" x="73.89067524115762" y="85" as="geometry" />
+        <mxCell id="l3t" parent="o4QgxmDZ_h19-OYWXaL5-7" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=0" value="Worker Agent (lazy MCP + structuredOutput)" vertex="1">
+          <mxGeometry height="19" width="280" x="73.89067524115762" y="85" as="geometry" />
         </mxCell>
         <mxCell id="l4" parent="o4QgxmDZ_h19-OYWXaL5-7" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3E5F5;strokeColor=#7B1FA2;fontStyle=0" value="" vertex="1">
           <mxGeometry height="19" width="36.94533762057878" x="24.6302250803858" y="110" as="geometry" />
         </mxCell>
-        <mxCell id="l4t" parent="o4QgxmDZ_h19-OYWXaL5-7" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=0" value="Mastra Scorer (code-based)" vertex="1">
-          <mxGeometry height="19" width="246.30225080385853" x="73.89067524115762" y="110" as="geometry" />
+        <mxCell id="l4t" parent="o4QgxmDZ_h19-OYWXaL5-7" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=0" value="Mastra Scorer (LLM Judge — Haiku)" vertex="1">
+          <mxGeometry height="19" width="260" x="73.89067524115762" y="110" as="geometry" />
         </mxCell>
         <mxCell id="l5" parent="o4QgxmDZ_h19-OYWXaL5-7" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EAF6;strokeColor=#3949AB;fontStyle=0" value="" vertex="1">
           <mxGeometry height="19" width="36.94533762057878" x="24.6302250803858" y="135" as="geometry" />
@@ -357,20 +328,20 @@
         <mxCell id="l6" parent="o4QgxmDZ_h19-OYWXaL5-7" style="rhombus;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=0" value="" vertex="1">
           <mxGeometry height="19" width="36.94533762057878" x="24.6302250803858" y="160" as="geometry" />
         </mxCell>
-        <mxCell id="l6t" parent="o4QgxmDZ_h19-OYWXaL5-7" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=0" value="Decision / Quality Gate" vertex="1">
-          <mxGeometry height="19" width="197.04180064308684" x="73.89067524115762" y="160" as="geometry" />
+        <mxCell id="l6t" parent="o4QgxmDZ_h19-OYWXaL5-7" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=0" value="Decision / Quality Gate (2-Stage)" vertex="1">
+          <mxGeometry height="19" width="260" x="73.89067524115762" y="160" as="geometry" />
         </mxCell>
         <mxCell id="l7" parent="o4QgxmDZ_h19-OYWXaL5-7" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;size=5;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=0" value="" vertex="1">
           <mxGeometry height="19" width="36.94533762057878" x="24.6302250803858" y="185" as="geometry" />
         </mxCell>
-        <mxCell id="l7t" parent="o4QgxmDZ_h19-OYWXaL5-7" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=0" value="Suspend (HITL)" vertex="1">
-          <mxGeometry height="19" width="184.72668810289392" x="73.89067524115762" y="185" as="geometry" />
+        <mxCell id="l7t" parent="o4QgxmDZ_h19-OYWXaL5-7" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=0" value="Suspend (HITL — Confidence Score)" vertex="1">
+          <mxGeometry height="19" width="260" x="73.89067524115762" y="185" as="geometry" />
         </mxCell>
         <mxCell id="l8" parent="o4QgxmDZ_h19-OYWXaL5-7" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFDE7;strokeColor=#F9A825;strokeWidth=3;dashed=1;fontStyle=0" value="" vertex="1">
           <mxGeometry height="19" width="36.94533762057878" x="24.6302250803858" y="210" as="geometry" />
         </mxCell>
-        <mxCell id="l8t" parent="o4QgxmDZ_h19-OYWXaL5-7" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=0" value="dountil Loop (auto-retry)" vertex="1">
-          <mxGeometry height="19" width="221.67202572347267" x="73.89067524115762" y="210" as="geometry" />
+        <mxCell id="l8t" parent="o4QgxmDZ_h19-OYWXaL5-7" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=0" value="dountil Loop (auto-retry + retryHistory)" vertex="1">
+          <mxGeometry height="19" width="280" x="73.89067524115762" y="210" as="geometry" />
         </mxCell>
         <mxCell id="l9" parent="o4QgxmDZ_h19-OYWXaL5-7" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#F9A825;strokeWidth=2;dashed=1;fontStyle=0" value="" vertex="1">
           <mxGeometry height="19" width="36.94533762057878" x="24.6302250803858" y="235" as="geometry" />
@@ -383,6 +354,46 @@
         </mxCell>
         <mxCell id="l10t" parent="o4QgxmDZ_h19-OYWXaL5-7" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=0" value="HITL Zone (suspend/resume)" vertex="1">
           <mxGeometry height="19" width="246.30225080385853" x="73.89067524115762" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="l11-label" parent="o4QgxmDZ_h19-OYWXaL5-7" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontStyle=2;fontColor=#E65100;" value="&lt;b&gt;NEW in this version:&lt;/b&gt; Confidence Score routing, LLM Judge (Haiku),&lt;br&gt;Worker structuredOutput {content, confidence}, retryHistory[],&lt;br&gt;Plan-level HITL candidates, Self-Diagnosis error recovery" vertex="1">
+          <mxGeometry height="50" width="340" x="25" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="retry-history-note" parent="o4QgxmDZ_h19-OYWXaL5-9" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=15;fillColor=#FFF8E1;strokeColor=#F9A825;fontSize=9;shadow=1;align=left;fontStyle=0" value="&lt;b&gt;[RETRY HISTORY] 주입&lt;/b&gt;&lt;br&gt;&lt;br&gt;retryHistory &amp;gt; 0일 때 프롬프트에 주입:&lt;br&gt;• Attempt N: targets, queries, reason&lt;br&gt;• confidence (Worker 자기 확신도)&lt;br&gt;• improvementSuggestion (Scorer)&lt;br&gt;&lt;br&gt;이미 시도한 전략의 반복 방지" vertex="1">
+          <mxGeometry height="130" width="180" x="1556" y="865" as="geometry" />
+        </mxCell>
+        <mxCell id="e-ambig2candidates" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="suspend-ambiguous" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=1.5;strokeColor=#1565C0;dashed=1;fontSize=9;fontStyle=0" target="ambig-candidates-note" value="candidates[]">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ambig-candidates-note" parent="o4QgxmDZ_h19-OYWXaL5-9" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=15;fillColor=#E3F2FD;strokeColor=#1565C0;fontSize=9;shadow=1;align=left;fontStyle=0" value="&lt;b&gt;Plan-level Candidates&lt;/b&gt;&lt;br&gt;&lt;br&gt;candidates: [&lt;br&gt;&amp;nbsp;&amp;nbsp;{ planId, label, description,&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;targets[], executionMode,&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;expectedOutcome }&lt;br&gt;]&lt;br&gt;&lt;br&gt;&lt;font color=&quot;#999&quot;&gt;단순 Agent 선택이 아닌&lt;br&gt;실행 계획 전체를 선택&lt;/font&gt;" vertex="1">
+          <mxGeometry height="140" width="180" x="344" y="595" as="geometry" />
+        </mxCell>
+        <mxCell id="qc-stage1-note" parent="o4QgxmDZ_h19-OYWXaL5-9" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;fontStyle=0" value="&lt;font style=&quot;font-size:9px&quot; color=&quot;#b85450&quot;&gt;&lt;b&gt;Stage 1 (code):&lt;/b&gt; success===false || empty → 즉시 FAIL (LLM 호출 없음)&lt;br&gt;&lt;b&gt;Stage 2 (LLM):&lt;/b&gt; qualityScorer(Haiku) → 의미 기반 평가 → PASS/FAIL&lt;br&gt;&lt;b&gt;FAIL시:&lt;/b&gt; RetryEntry 생성 → retryHistory[] 누적 → retryCount++&lt;/font&gt;" vertex="1">
+          <mxGeometry height="45" width="390" x="690" y="785" as="geometry" />
+        </mxCell>
+        <mxCell id="e-conn2agents" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="mcp-conn-mgr" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=1.5;strokeColor=#3949AB;dashed=1;fontSize=9;fontStyle=0" target="agent-box" value="getToolsets()">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1660" y="240" />
+              <mxPoint x="1660" y="395" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-act2ctx" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="mcp-user-act" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=1.5;strokeColor=#1565C0;dashed=1;fontSize=9;fontStyle=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="req-ctx" value="activeMcpIds">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1716" y="290" />
+              <mxPoint x="1716" y="124" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="resume-ambiguous" parent="o4QgxmDZ_h19-OYWXaL5-9" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#1565C0;fontSize=10;shadow=1;fontStyle=0" value="&lt;b&gt;resume({ selectedPlan,&lt;br&gt;selectedTargets, selectedExecutionMode })&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;선택 Plan으로 즉시 실행&lt;/font&gt;" vertex="1">
+          <mxGeometry height="49" width="246.3" x="309.85" y="425" as="geometry" />
+        </mxCell>
+        <mxCell id="user-response" parent="o4QgxmDZ_h19-OYWXaL5-9" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fixedSize=1;size=20;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;fontStyle=1;" value="User Response" vertex="1">
+          <mxGeometry height="49" width="246.30225080385853" x="875.3931832797427" y="989" as="geometry" />
+        </mxCell>
+        <mxCell id="6CkGZExZt-jWuug3Z-16-9" edge="1" parent="o4QgxmDZ_h19-OYWXaL5-9" source="synthesize" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="user-response">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
