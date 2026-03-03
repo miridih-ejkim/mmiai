@@ -1,6 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useMemo } from 'react';
+import { useChat } from '@ai-sdk/react';
+import {
+  DefaultChatTransport,
+  lastAssistantMessageIsCompleteWithApprovalResponses,
+} from 'ai';
 
 import {
   PromptInput,
@@ -14,216 +19,101 @@ import {
   ConversationScrollButton,
 } from '@/components/ai-elements/conversation';
 
-import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
+import {
+  Message,
+  MessageContent,
+  MessageResponse,
+} from '@/components/ai-elements/message';
 
-/** 채팅 메시지 타입 */
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
+import { ClarifyToolUI, PlanSelectToolUI } from '@/components/chat-tools';
+
+/**
+ * Tool part에서 tool name 추출
+ * - static tool: type="tool-requestClarification" → "requestClarification"
+ * - dynamic tool: type="dynamic-tool", toolName="requestClarification"
+ */
+function getToolName(part: any): string {
+  if (part.type === 'dynamic-tool') return part.toolName || '';
+  if (part.type?.startsWith('tool-')) return part.type.slice(5);
+  return '';
 }
 
-/** Plan 후보 (ambiguous 타입) */
-interface PlanCandidate {
-  planId: string;
-  label: string;
-  description: string;
-  targets: string[];
-  executionMode: 'parallel' | 'sequential';
-  expectedOutcome: string;
-}
-
-/** Suspend 상태 (HITL) */
-interface SuspendState {
-  runId: string;
-  suspendedStep: string[] | string;
-  hitlType: 'clarify' | 'ambiguous';
-  clarifyQuestion?: string;
-  candidates?: PlanCandidate[];
-  originalMessage: string;
+/** Tool UI part인지 확인 */
+function isToolPart(part: any): boolean {
+  return part.type === 'dynamic-tool' || (typeof part.type === 'string' && part.type.startsWith('tool-'));
 }
 
 function Chat() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [suspendState, setSuspendState] = useState<SuspendState | null>(null);
-  const msgIdRef = useRef(0);
-  const lastUserMessageRef = useRef('');
-  // 세션 단위 threadId (탭/페이지 단위로 대화 분리)
-  const threadIdRef = useRef(
+  const userId =
     typeof window !== 'undefined'
-      ? sessionStorage.getItem('mmiai-thread-id') || (() => {
-          const id = `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-          sessionStorage.setItem('mmiai-thread-id', id);
-          return id;
-        })()
-      : `thread-${Date.now()}`,
-  );
+      ? localStorage.getItem('mmiai-user-id') || 'default-user'
+      : 'default-user';
 
-  const nextId = () => String(++msgIdRef.current);
-
-  useEffect(() => {
-    fetch('/mastra/chat-history')
-      .then((res) => res.json())
-      .then((data) => setMessages(data))
-      .catch(() => {});
+  // 세션 단위 chatId
+  const chatId = useMemo(() => {
+    if (typeof window === 'undefined') return `chat-${Date.now()}`;
+    const stored = sessionStorage.getItem('mmiai-chat-id');
+    if (stored) return stored;
+    const id = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    sessionStorage.setItem('mmiai-chat-id', id);
+    return id;
   }, []);
 
-  /** 워크플로우에 요청 (신규 또는 resume) */
-  const sendToWorkflow = useCallback(
-    async (body: Record<string, unknown>) => {
-      setIsLoading(true);
-      console.log('[sendToWorkflow] Request body:', JSON.stringify(body, null, 2));
-      try {
-        const userId = typeof window !== 'undefined'
-          ? localStorage.getItem('mmiai-user-id') || 'default-user'
-          : 'default-user';
-        const res = await fetch('/mastra/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...body, userId, threadId: threadIdRef.current }),
-        });
-
-        console.log('[sendToWorkflow] Response status:', res.status, res.statusText);
-
-        if (!res.ok) {
-          const text = await res.text();
-          console.error('[sendToWorkflow] Error response text:', text);
-          let errorMsg: string;
-          try {
-            const errJson = JSON.parse(text);
-            errorMsg = errJson.error || errJson.message || text;
-          } catch {
-            errorMsg = text || `서버 오류 (${res.status})`;
-          }
-          throw new Error(errorMsg);
-        }
-
-        const data = await res.json();
-        console.log('[sendToWorkflow] Response data:', JSON.stringify(data, null, 2));
-
-        if (data.status === 'suspended') {
-          const hitlType = data.hitlType as 'clarify' | 'ambiguous';
-          console.log('[sendToWorkflow] Suspended:', { hitlType, runId: data.runId, suspendedStep: data.suspendedStep });
-
-          setSuspendState({
-            runId: data.runId,
-            suspendedStep: data.suspendedStep,
-            hitlType,
-            clarifyQuestion: data.clarifyQuestion,
-            candidates: data.candidates,
-            originalMessage: data.originalMessage || lastUserMessageRef.current,
-          });
-
-          if (hitlType === 'clarify') {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: nextId(),
-                role: 'assistant',
-                content: data.clarifyQuestion || '추가 정보를 알려주세요.',
-              },
-            ]);
-          }
-          // ambiguous → plan 선택 카드 UI (별도 렌더링)
-        } else {
-          setSuspendState(null);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: nextId(),
-              role: 'assistant',
-              content: data.response || '응답을 생성하지 못했습니다.',
-            },
-          ]);
-        }
-      } catch (error) {
-        console.error('[sendToWorkflow] Catch error:', error);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: nextId(),
-            role: 'system',
-            content: `오류가 발생했습니다: ${error instanceof Error ? error.message : '알 수 없는 오류'}`,
-          },
-        ]);
-        setSuspendState(null);
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [],
-  );
-
-  /** ambiguous: Plan 선택 카드 클릭 */
-  const handlePlanSelect = useCallback(
-    async (candidate: PlanCandidate) => {
-      if (!suspendState || isLoading) return;
-
-      setMessages((prev) => [
-        ...prev,
-        { id: nextId(), role: 'user', content: `"${candidate.label}" 선택` },
-      ]);
-
-      await sendToWorkflow({
-        runId: suspendState.runId,
-        suspendedStep: suspendState.suspendedStep,
-        resumeData: {
-          selectedPlan: candidate.planId,
-          selectedTargets: candidate.targets,
-          selectedExecutionMode: candidate.executionMode,
+  const {
+    messages,
+    sendMessage,
+    addToolApprovalResponse,
+    status,
+    error,
+  } = useChat({
+    id: chatId,
+    transport: new DefaultChatTransport({
+      api: '/mastra/chat',
+      body: { userId, chatId },
+      prepareSendMessagesRequest: ({ id, messages: msgs, body }) => ({
+        body: {
+          ...body,
+          chatId: id,
+          messages: msgs,
         },
-      });
+      }),
+    }),
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+    experimental_throttle: 100,
+    onError: (err) => {
+      console.error('[useChat] Error:', err);
     },
-    [suspendState, isLoading, sendToWorkflow],
-  );
+  });
 
-  /** 텍스트 입력 후 submit */
-  const handleSubmit = async ({ text }: { text: string }) => {
-    console.log('[handleSubmit] text:', JSON.stringify(text), 'isLoading:', isLoading, 'suspendState:', suspendState);
-    if (isLoading) return;
+  const isLoading = status === 'submitted' || status === 'streaming';
 
+  /** 텍스트 입력 submit */
+  const handleSubmit = ({ text }: { text: string }) => {
     const userText = text.trim();
-    if (!userText) return;
+    if (!userText || isLoading) return;
+    sendMessage({ text: userText });
+  };
 
-    if (suspendState) {
-      if (suspendState.hitlType === 'clarify') {
-        setMessages((prev) => [
-          ...prev,
-          { id: nextId(), role: 'user', content: userText },
-        ]);
+  /** Clarify tool approval → 사용자 답변 전송 */
+  const handleClarifyApprove = (part: any, answer: string) => {
+    addToolApprovalResponse({
+      id: part.approval?.id,
+      approved: true,
+      reason: answer,
+    });
+  };
 
-        await sendToWorkflow({
-          runId: suspendState.runId,
-          suspendedStep: suspendState.suspendedStep,
-          resumeData: { userAnswer: userText },
-        });
-      } else if (suspendState.hitlType === 'ambiguous') {
-        // ambiguous 모드에서 텍스트 입력 시 → 새 워크플로우로 시작
-        lastUserMessageRef.current = userText;
-        setSuspendState(null);
-
-        setMessages((prev) => [
-          ...prev,
-          { id: nextId(), role: 'user', content: userText },
-        ]);
-
-        await sendToWorkflow({
-          runId: suspendState.runId,
-          resumeData: { action: 'new', userFeedback: userText },
-        });
-      }
-    } else {
-      // 일반 모드
-      lastUserMessageRef.current = userText;
-      setMessages((prev) => [
-        ...prev,
-        { id: nextId(), role: 'user', content: userText },
-      ]);
-      await sendToWorkflow({
-        inputData: { message: userText },
-      });
-    }
+  /** Ambiguous tool approval → Plan 선택 전송 */
+  const handlePlanApprove = (part: any, candidate: any) => {
+    addToolApprovalResponse({
+      id: part.approval?.id,
+      approved: true,
+      reason: JSON.stringify({
+        selectedPlan: candidate.planId,
+        selectedTargets: candidate.targets,
+        selectedExecutionMode: candidate.executionMode,
+      }),
+    });
   };
 
   return (
@@ -234,37 +124,67 @@ function Chat() {
             {messages.map((message) => (
               <Message key={message.id} from={message.role}>
                 <MessageContent>
-                  <MessageResponse>{message.content}</MessageResponse>
+                  {message.parts.map((part, i) => {
+                    // Text part
+                    if (part.type === 'text') {
+                      return (
+                        <MessageResponse key={i}>
+                          {part.text}
+                        </MessageResponse>
+                      );
+                    }
+
+                    // Tool parts — HITL UI
+                    if (isToolPart(part)) {
+                      const toolName = getToolName(part);
+                      const toolPart = part as any;
+
+                      if (toolName === 'requestClarification') {
+                        return (
+                          <ClarifyToolUI
+                            key={i}
+                            question={toolPart.input?.question || '추가 정보를 알려주세요.'}
+                            state={toolPart.state}
+                            onApprove={(answer) => handleClarifyApprove(toolPart, answer)}
+                          />
+                        );
+                      }
+
+                      if (toolName === 'selectExecutionPlan') {
+                        return (
+                          <PlanSelectToolUI
+                            key={i}
+                            candidates={toolPart.input?.candidates || []}
+                            state={toolPart.state}
+                            onApprove={(candidate) => handlePlanApprove(toolPart, candidate)}
+                          />
+                        );
+                      }
+                    }
+
+                    return null;
+                  })}
                 </MessageContent>
               </Message>
             ))}
 
-            {/* ambiguous: Plan 선택 카드 */}
-            {suspendState?.hitlType === 'ambiguous' && suspendState.candidates && (
-              <div className="mx-auto w-full max-w-2xl space-y-2 py-2">
-                <p className="text-sm text-white/70 mb-3">
-                  어떤 방식으로 처리할까요?
-                </p>
-                {suspendState.candidates.map((candidate) => (
-                  <button
-                    key={candidate.planId}
-                    type="button"
-                    onClick={() => handlePlanSelect(candidate)}
-                    disabled={isLoading}
-                    className="w-full text-left rounded-lg border border-white/10 p-4
-                               hover:bg-white/5 hover:border-blue-500/50 transition-colors
-                               cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <div className="font-medium text-sm">{candidate.label}</div>
-                    <div className="text-xs text-white/50 mt-1">{candidate.description}</div>
-                    <div className="flex items-center gap-2 mt-2">
-                      <span className="text-xs text-blue-400/70 bg-blue-500/10 px-2 py-0.5 rounded">
-                        {candidate.expectedOutcome}
-                      </span>
-                    </div>
-                  </button>
-                ))}
+            {/* 로딩 표시 */}
+            {status === 'submitted' && (
+              <div className="flex items-center gap-2 text-xs text-white/50 py-2">
+                <div className="h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
+                <span>처리 중...</span>
               </div>
+            )}
+
+            {/* 에러 표시 */}
+            {error && (
+              <Message from="system">
+                <MessageContent>
+                  <MessageResponse>
+                    {`오류가 발생했습니다: ${error.message}`}
+                  </MessageResponse>
+                </MessageContent>
+              </Message>
             )}
 
             <ConversationScrollButton />
@@ -275,13 +195,7 @@ function Chat() {
           <PromptInputBody>
             <PromptInputTextarea
               className="md:leading-10"
-              placeholder={
-                suspendState?.hitlType === 'clarify'
-                  ? '답변을 입력하세요...'
-                  : suspendState?.hitlType === 'ambiguous'
-                    ? '위에서 선택하거나 새 질문을 입력하세요'
-                    : 'Type your message...'
-              }
+              placeholder="Type your message..."
               disabled={isLoading}
             />
           </PromptInputBody>

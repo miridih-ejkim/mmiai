@@ -2,6 +2,7 @@
 import { Mastra } from "@mastra/core/mastra";
 import { RequestContext } from "@mastra/core/request-context";
 import { PinoLogger } from "@mastra/loggers";
+import { FileTransport } from "@mastra/loggers/file";
 import { PostgresStore } from "@mastra/pg";
 import { Memory } from "@mastra/memory";
 
@@ -11,6 +12,19 @@ import {
   SensitiveDataFilter,
 } from "@mastra/observability";
 import { registerApiRoute } from "@mastra/core/server";
+
+import {
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  generateId,
+} from "ai";
+import type { UIMessage } from "ai";
+
+import {
+  getChatById,
+  createChat,
+  saveMessages,
+} from "../lib/db/queries";
 
 import {
   mcpConnectionManager,
@@ -89,7 +103,10 @@ export async function initializeMastra(): Promise<{
     }),
     logger: new PinoLogger({
       name: "Mastra",
-      level: "info",
+      level: "debug",
+      transports: {
+        file: new FileTransport({ path: "/Users/miridih/mmiai/logs/mastra.log" }),
+      },
     }),
     observability: new Observability({
       configs: {
@@ -102,173 +119,228 @@ export async function initializeMastra(): Promise<{
     }),
     server: {
       apiRoutes: [
-        // Chat Workflow (suspend/resume 지원 커스텀 라우트)
+        // Chat Workflow (AI SDK SSE streaming — suspend/resume via tool approval)
         registerApiRoute("/chat", {
           method: "POST",
           handler: async (c) => {
-            try {
-              const body = await c.req.json();
-              console.log("[/chat] Request body:", JSON.stringify(body, null, 2));
-              const workflow = mastra.getWorkflow("chatWorkflow");
+            const body = await c.req.json();
+            const workflow = mastra.getWorkflow("chatWorkflow");
 
-              // 사용자별 활성 MCP 조회
-              const userId = body.userId || "default-user";
-              const threadId =
-                body.threadId ||
-                `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-              const activeMcpIds = await getUserActiveMcpIds(userId);
+            // Support both AI SDK format (messages) and old format (inputData/resumeData)
+            const userId = body.userId || "default-user";
+            const chatId: string | undefined = body.chatId || body.id;
+            const incomingMessages: UIMessage[] = body.messages || [];
+            const threadId =
+              body.threadId ||
+              chatId ||
+              `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            const activeMcpIds = await getUserActiveMcpIds(userId);
 
-              // RequestContext 생성
-              const requestContext = new RequestContext();
-              requestContext.set("userId", userId);
-              requestContext.set("threadId", threadId);
-              requestContext.set("activeMcpIds", activeMcpIds);
+            // RequestContext 생성
+            const requestContext = new RequestContext();
+            requestContext.set("userId", userId);
+            requestContext.set("threadId", threadId);
+            requestContext.set("activeMcpIds", activeMcpIds);
 
-              let result: any;
-              let runId: string;
+            // Detect resume: old-style (runId+resumeData) or AI SDK tool-approval
+            const isDirectResume = !!(body.runId && body.resumeData);
+            const isToolApprovalResume =
+              !isDirectResume &&
+              detectToolApprovalResume(incomingMessages);
+            const isResume = isDirectResume || isToolApprovalResume;
 
-              if (body.runId && body.resumeData) {
-                const action = body.resumeData.action;
+            let streamOutput: any;
+            let runId: string;
 
-                if (action === "new") {
-                  // === New: 사용자의 새 질문으로 새 워크플로우 시작 ===
-                  const run = await workflow.createRun();
-                  runId = run.runId;
-                  result = await run.start({
-                    inputData: {
-                      message: body.resumeData.userFeedback || "",
-                    },
-                    initialState: {
-                      executionTargets: [],
-                      executionMode: "parallel" as const,
-                      executionQueries: {},
-                      retryCount: 0,
-                      retryHistory: [],
-                    },
-                    requestContext,
+            if (isResume) {
+              let meta: {
+                runId: string;
+                suspendedStep: string[] | string;
+              };
+              let resumeData: Record<string, unknown>;
+
+              if (isDirectResume) {
+                // Old client format: { runId, suspendedStep, resumeData }
+                meta = {
+                  runId: body.runId,
+                  suspendedStep: body.suspendedStep,
+                };
+                resumeData = body.resumeData;
+              } else {
+                // AI SDK tool-approval format
+                ({ meta, resumeData } =
+                  extractResumeData(incomingMessages));
+              }
+
+              const run = await workflow.createRun({
+                runId: meta.runId,
+              });
+              runId = meta.runId;
+              streamOutput = run.resumeStream({
+                step: meta.suspendedStep,
+                resumeData,
+                requestContext,
+              });
+            } else {
+              // === New: start workflow with latest user message ===
+              const userText =
+                body.inputData?.message ||
+                extractLastUserMessage(incomingMessages);
+              const run = await workflow.createRun();
+              runId = run.runId;
+              streamOutput = run.stream({
+                inputData: { message: userText },
+                initialState: {
+                  executionTargets: [],
+                  executionMode: "parallel" as const,
+                  executionQueries: [],
+                  retryCount: 0,
+                  retryHistory: [],
+                },
+                requestContext,
+                closeOnSuspend: true,
+              });
+
+              // Persist: create chat + save user message
+              if (chatId) {
+                try {
+                  const existing = await getChatById(chatId);
+                  if (!existing) {
+                    const title =
+                      userText.slice(0, 50) || "New Chat";
+                    await createChat({ id: chatId, userId, title });
+                  }
+                  const lastUser = [...incomingMessages]
+                    .reverse()
+                    .find((m) => m.role === "user");
+                  if (lastUser) {
+                    await saveMessages([
+                      {
+                        id: lastUser.id,
+                        chatId,
+                        role: lastUser.role,
+                        parts: lastUser.parts,
+                      },
+                    ]);
+                  }
+                } catch (e) {
+                  console.error("[/chat] DB save user msg error:", e);
+                }
+              }
+            }
+
+            // AI SDK UI Message Stream
+            const stream = createUIMessageStream({
+              originalMessages: incomingMessages,
+              execute: async ({ writer }) => {
+                // Consume Mastra stream events (progress)
+                for await (const event of streamOutput) {
+                  if (
+                    event.type === "workflow-step-start" ||
+                    event.type === "workflow-step-finish"
+                  ) {
+                    // Could emit data parts for progress, skip for now
+                  }
+                }
+
+                // Final result
+                const result = await streamOutput.result;
+                console.log(
+                  "[/chat] Workflow result status:",
+                  result.status,
+                  "runId:",
+                  runId,
+                );
+
+                if (result.status === "suspended") {
+                  // Extract suspend payload (evented/non-evented engine)
+                  const payload = extractSuspendPayload(result);
+                  const toolCallId = generateId();
+                  const approvalId = generateId();
+
+                  if (payload.hitlType === "clarify") {
+                    writer.write({
+                      type: "tool-input-available",
+                      toolCallId,
+                      toolName: "requestClarification",
+                      input: {
+                        question:
+                          payload.clarifyQuestion ||
+                          "추가 정보를 알려주세요.",
+                        _meta: {
+                          runId,
+                          suspendedStep: payload.suspendedStep,
+                        },
+                      },
+                    });
+                  } else {
+                    writer.write({
+                      type: "tool-input-available",
+                      toolCallId,
+                      toolName: "selectExecutionPlan",
+                      input: {
+                        candidates: payload.candidates || [],
+                        _meta: {
+                          runId,
+                          suspendedStep: payload.suspendedStep,
+                        },
+                      },
+                    });
+                  }
+                  writer.write({
+                    type: "tool-approval-request",
+                    approvalId,
+                    toolCallId,
                   });
                 } else {
-                  // === Resume: classify-intent에서 suspend된 워크플로우 재개 ===
-                  // clarify → { userAnswer: "..." }
-                  // ambiguous → { selectedAgent: "..." }
-                  const run = await workflow.createRun({
-                    runId: body.runId,
+                  // Completed → text chunk
+                  // Mastra evented engine: result may be at different paths
+                  const text =
+                    result.result?.response ??
+                    result.steps?.["synthesize-response"]?.output?.response ??
+                    (typeof result.result === "string"
+                      ? result.result
+                      : null) ??
+                    "워크플로우가 종료되었습니다.";
+                  const msgId = generateId();
+                  writer.write({ type: "text-start", id: msgId });
+                  writer.write({
+                    type: "text-delta",
+                    id: msgId,
+                    delta: text,
                   });
-                  runId = run.runId;
-                  result = await run.resume({
-                    step: body.suspendedStep || "classify-intent",
-                    resumeData: body.resumeData,
-                    requestContext,
-                  });
+                  writer.write({ type: "text-end", id: msgId });
                 }
-              } else {
-                // === New: 새 워크플로우 실행 ===
-                const run = await workflow.createRun();
-                runId = run.runId;
-                result = await run.start({
-                  inputData: body.inputData || {
-                    message: body.message || "",
-                  },
-                  initialState: {
-                    executionTargets: [],
-                    executionMode: "parallel" as const,
-                    executionQueries: {},
-                    retryCount: 0,
-                    retryHistory: [],
-                  },
-                  requestContext,
-                });
-              }
-
-              console.log("[/chat] Workflow result status:", result.status, "runId:", runId);
-              console.log("[/chat] Workflow result keys:", Object.keys(result));
-              if (result.status === "suspended") {
-                console.log("[/chat] suspended paths:", JSON.stringify(result.suspended));
-                console.log("[/chat] result.steps keys:", Object.keys(result.steps || {}));
-              }
-
-              // Suspended → HITL 응답 (classify-intent에서 suspend)
-              if (result.status === "suspended") {
-                // Evented engine: suspendPayload는 result.steps[stepId].suspendPayload에 위치
-                // Non-evented engine: result.suspendPayload = { "step-id": { ... } }
-                // 두 엔진 모두 지원하기 위해 steps에서 먼저 추출 시도
-                const suspendedStep = result.suspended?.[0]; // e.g., ["classify-and-execute", "classify-intent"]
-                const topStepId = suspendedStep?.[0]; // e.g., "classify-and-execute"
-
-                let suspendPayload: {
-                  hitlType: "clarify" | "ambiguous";
-                  clarifyQuestion?: string;
-                  candidates?: Array<{
-                    planId: string;
-                    label: string;
-                    description: string;
-                    targets: string[];
-                    executionMode: "parallel" | "sequential";
-                    expectedOutcome: string;
-                  }>;
-                  originalMessage?: string;
-                } | undefined;
-
-                // 1) Evented engine: result.steps[stepId].suspendPayload (직접 payload)
-                if (topStepId && result.steps?.[topStepId]?.suspendPayload) {
-                  const stepPayload = result.steps[topStepId].suspendPayload;
-                  // __workflow_meta가 있으면 strip (framework metadata)
-                  const { __workflow_meta, ...userPayload } = stepPayload;
-                  suspendPayload = userPayload as typeof suspendPayload;
+              },
+              onFinish: async ({ responseMessage }) => {
+                // Save assistant response to DB
+                if (chatId && responseMessage) {
+                  try {
+                    await saveMessages([
+                      {
+                        id: responseMessage.id,
+                        chatId,
+                        role: responseMessage.role,
+                        parts: responseMessage.parts as unknown[],
+                      },
+                    ]);
+                  } catch (e) {
+                    console.error(
+                      "[/chat] DB save assistant msg error:",
+                      e,
+                    );
+                  }
                 }
-                // 2) Non-evented engine fallback: result.suspendPayload = { "step-id": { ... } }
-                if (!suspendPayload && result.suspendPayload) {
-                  const rawPayload = result.suspendPayload as Record<string, any>;
-                  suspendPayload = (
-                    rawPayload?.[topStepId || "classify-and-execute"] ||
-                    rawPayload
-                  ) as typeof suspendPayload;
-                }
+              },
+            });
 
-                console.log("[/chat] Extracted suspendPayload:", JSON.stringify(suspendPayload, null, 2));
-
-                const responsePayload = {
-                  status: "suspended",
-                  runId,
-                  suspendedStep,
-                  hitlType: suspendPayload?.hitlType || "clarify",
-                  clarifyQuestion: suspendPayload?.clarifyQuestion,
-                  candidates: suspendPayload?.candidates,
-                  originalMessage: suspendPayload?.originalMessage,
-                };
-                console.log("[/chat] Sending suspended response:", JSON.stringify(responsePayload, null, 2));
-                return c.json(responsePayload);
-              }
-
-              // Completed — 응답은 finalResponser의 공유 Memory에 자동 기록됨
-              const responseText =
-                result.result?.response ??
-                "워크플로우가 종료되었습니다.";
-
-              return c.json({
-                status: "completed",
-                response: responseText,
-              });
-            } catch (error) {
-              console.error("[/chat] Error:", error);
-              return c.json(
-                {
-                  status: "error",
-                  error:
-                    error instanceof Error
-                      ? error.message
-                      : "Internal server error",
-                },
-                500,
-              );
-            }
-          },
-        }),
-        // 대화 기록 조회 (향후 메모리 통합 예정)
-        registerApiRoute("/chat-history", {
-          method: "GET",
-          handler: async (c) => {
-            return c.json([]);
+            return createUIMessageStreamResponse({
+              stream,
+              headers: {
+                "X-Accel-Buffering": "no",
+                "Cache-Control": "no-cache",
+              },
+            });
           },
         }),
         // MCP 레지스트리 조회 (관리자 승인 MCP 목록)
@@ -323,3 +395,100 @@ export async function initializeMastra(): Promise<{
 const { mastra, shutdown } = await initializeMastra();
 
 export { mastra, shutdown };
+
+// ── Helper functions for AI SDK tool-approval HITL ──
+
+interface SuspendPayloadResult {
+  hitlType: "clarify" | "ambiguous";
+  clarifyQuestion?: string;
+  candidates?: Array<{
+    planId: string;
+    label: string;
+    description: string;
+    targets: string[];
+    executionMode: "parallel" | "sequential";
+    expectedOutcome: string;
+  }>;
+  originalMessage?: string;
+  suspendedStep: string[] | string;
+}
+
+/** Check if last assistant message has tool-approval-responded parts */
+function detectToolApprovalResume(messages: UIMessage[]): boolean {
+  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+  if (!lastAssistant) return false;
+  return lastAssistant.parts.some(
+    (p: any) =>
+      (p.type === "dynamic-tool" || p.type?.startsWith("tool-")) &&
+      p.state === "approval-responded",
+  );
+}
+
+/** Extract resume data from tool-approval-responded part */
+function extractResumeData(messages: UIMessage[]): {
+  meta: { runId: string; suspendedStep: string[] | string };
+  resumeData: Record<string, unknown>;
+} {
+  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+  const toolPart = lastAssistant?.parts.find(
+    (p: any) =>
+      (p.type === "dynamic-tool" || p.type?.startsWith("tool-")) &&
+      p.state === "approval-responded",
+  ) as any;
+
+  const meta = toolPart?.input?._meta || {};
+  const toolName = toolPart?.toolName;
+
+  if (toolName === "requestClarification") {
+    // Clarify: reason = user's text answer
+    return {
+      meta,
+      resumeData: { userAnswer: toolPart?.approval?.reason || "" },
+    };
+  } else {
+    // Ambiguous: reason = JSON.stringify({ selectedPlan, selectedTargets, selectedExecutionMode })
+    try {
+      const parsed = JSON.parse(toolPart?.approval?.reason || "{}");
+      return { meta, resumeData: parsed };
+    } catch {
+      return { meta, resumeData: {} };
+    }
+  }
+}
+
+/** Extract last user text message from messages array */
+function extractLastUserMessage(messages: UIMessage[]): string {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  if (!lastUser) return "";
+  const textPart = lastUser.parts.find((p: any) => p.type === "text") as any;
+  return textPart?.text ?? "";
+}
+
+/** Extract suspend payload from workflow result (evented/non-evented engine) */
+function extractSuspendPayload(result: any): SuspendPayloadResult {
+  const suspendedStep = result.suspended?.[0] || [];
+  const topStepId = suspendedStep?.[0];
+
+  let suspendPayload: any;
+
+  // 1) Evented engine: result.steps[stepId].suspendPayload
+  if (topStepId && result.steps?.[topStepId]?.suspendPayload) {
+    const stepPayload = result.steps[topStepId].suspendPayload;
+    const { __workflow_meta, ...userPayload } = stepPayload;
+    suspendPayload = userPayload;
+  }
+  // 2) Non-evented engine fallback
+  if (!suspendPayload && result.suspendPayload) {
+    const rawPayload = result.suspendPayload as Record<string, any>;
+    suspendPayload =
+      rawPayload?.[topStepId || "classify-and-execute"] || rawPayload;
+  }
+
+  return {
+    hitlType: suspendPayload?.hitlType || "clarify",
+    clarifyQuestion: suspendPayload?.clarifyQuestion,
+    candidates: suspendPayload?.candidates,
+    originalMessage: suspendPayload?.originalMessage,
+    suspendedStep,
+  };
+}
