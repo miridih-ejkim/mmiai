@@ -17,9 +17,25 @@ export const agentResultSchema = z.object({
     ),
   content: z.string().describe("Agent 실행 결과 텍스트"),
   success: z.boolean().describe("실행 성공 여부"),
+  confidence: z.number().optional().describe("Worker Agent 자기 확신도 (0.0-1.0)"),
 });
 
 export type AgentResult = z.infer<typeof agentResultSchema>;
+
+/**
+ * Worker Agent structuredOutput 스키마
+ * agent.generate()에 전달하여 LLM이 반드시 이 형태로 응답하도록 강제
+ */
+const workerOutputSchema = z.object({
+  content: z.string().describe("사용자에게 전달할 응답 본문"),
+  confidence: z
+    .number()
+    .min(0)
+    .max(1)
+    .describe(
+      "이 응답이 사용자 질문에 정확히 답하는지에 대한 확신도 (0.0 = 전혀 답이 안 됨, 1.0 = 완벽히 답함)",
+    ),
+});
 
 /**
  * Direct Response Step (simple 분기)
@@ -52,7 +68,7 @@ export const agentStep = createStep({
   inputSchema: classificationOutputSchema,
   outputSchema: agentResultSchema,
   stateSchema: workflowStateSchema,
-  execute: async ({ inputData, mastra, getInitData, requestContext, setState }) => {
+  execute: async ({ inputData, mastra, getInitData, requestContext, state, setState }) => {
     const initData = getInitData<{ message: string }>();
     const userMessage = initData?.message || "";
     const activeMcpIds =
@@ -77,9 +93,21 @@ export const agentStep = createStep({
       activeTargets.length === 1 ? activeTargets[0] : "multi-agent";
 
     // 실행 계획을 workflow state에 기록 → quality-check가 참조
+    // queries를 plain string으로 정규화하여 기록
+    const flatQueries: Record<string, string> = {};
+    for (const t of activeTargets) {
+      const raw = inputData.queries[t];
+      flatQueries[t] =
+        typeof raw === "object" && raw !== null
+          ? (raw as SequentialQuery).query
+          : (raw as string) || userMessage;
+    }
+    // 기존 state(retryCount, retryHistory 등)를 보존하면서 targets/mode/queries 업데이트
     await setState({
+      ...state,
       executionTargets: activeTargets,
       executionMode: inputData.executionMode || "parallel",
+      executionQueries: flatQueries,
     });
 
     try {
@@ -91,6 +119,7 @@ export const agentStep = createStep({
         // single일 때는 loop 1회로 동일 로직
         let previousResult = "";
         const allResults: string[] = [];
+        let lastConfidence: number | undefined;
 
         for (const target of activeTargets) {
           const entry = getRegistryEntry(target);
@@ -123,13 +152,18 @@ export const agentStep = createStep({
               : queryPlan.query;
           }
 
-          const result = await agent.generate(prompt, { toolsets });
-          previousResult = result.text;
+          const result = await agent.generate(prompt, {
+            toolsets,
+            structuredOutput: { schema: workerOutputSchema },
+          });
+          const output = result.object as z.infer<typeof workerOutputSchema>;
+          previousResult = output.content;
           allResults.push(
             activeTargets.length === 1
-              ? result.text
-              : `[${entry.name}]\n${result.text}`,
+              ? output.content
+              : `[${entry.name}]\n${output.content}`,
           );
+          lastConfidence = output.confidence;
         }
 
         const merged = allResults.join("\n\n---\n\n");
@@ -137,9 +171,11 @@ export const agentStep = createStep({
           source: sourceLabel,
           content: merged || "결과를 생성하지 못했습니다.",
           success: merged.length > 0,
+          confidence: lastConfidence,
         };
       } else {
         // 병렬 호출
+        const confidences: number[] = [];
         const results = await Promise.all(
           activeTargets.map(async (target) => {
             const entry = getRegistryEntry(target);
@@ -155,8 +191,13 @@ export const agentStep = createStep({
                 typeof rawQuery === "object" && rawQuery !== null
                   ? (rawQuery as SequentialQuery).query
                   : (rawQuery as string) || userMessage;
-              const result = await agent.generate(query, { toolsets });
-              return `[${entry.name}]\n${result.text}`;
+              const result = await agent.generate(query, {
+                toolsets,
+                structuredOutput: { schema: workerOutputSchema },
+              });
+              const output = result.object as z.infer<typeof workerOutputSchema>;
+              confidences.push(output.confidence);
+              return `[${entry.name}]\n${output.content}`;
             } catch (error) {
               return `[${entry.name}]\n오류: ${error instanceof Error ? error.message : String(error)}`;
             }
@@ -164,10 +205,15 @@ export const agentStep = createStep({
         );
 
         const merged = results.filter(Boolean).join("\n\n---\n\n");
+        // 병렬: 가장 낮은 confidence를 채택 (보수적 판단)
+        const minConfidence = confidences.length > 0
+          ? Math.min(...confidences)
+          : undefined;
         return {
           source: sourceLabel,
           content: merged || "결과를 생성하지 못했습니다.",
           success: merged.length > 0,
+          confidence: minConfidence,
         };
       }
     } catch (error) {

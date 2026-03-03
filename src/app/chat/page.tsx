@@ -73,6 +73,7 @@ function Chat() {
   const sendToWorkflow = useCallback(
     async (body: Record<string, unknown>) => {
       setIsLoading(true);
+      console.log('[sendToWorkflow] Request body:', JSON.stringify(body, null, 2));
       try {
         const userId = typeof window !== 'undefined'
           ? localStorage.getItem('mmiai-user-id') || 'default-user'
@@ -83,8 +84,11 @@ function Chat() {
           body: JSON.stringify({ ...body, userId, threadId: threadIdRef.current }),
         });
 
+        console.log('[sendToWorkflow] Response status:', res.status, res.statusText);
+
         if (!res.ok) {
           const text = await res.text();
+          console.error('[sendToWorkflow] Error response text:', text);
           let errorMsg: string;
           try {
             const errJson = JSON.parse(text);
@@ -96,9 +100,11 @@ function Chat() {
         }
 
         const data = await res.json();
+        console.log('[sendToWorkflow] Response data:', JSON.stringify(data, null, 2));
 
         if (data.status === 'suspended') {
           const hitlType = data.hitlType as 'clarify' | 'ambiguous';
+          console.log('[sendToWorkflow] Suspended:', { hitlType, runId: data.runId, suspendedStep: data.suspendedStep });
 
           setSuspendState({
             runId: data.runId,
@@ -132,6 +138,7 @@ function Chat() {
           ]);
         }
       } catch (error) {
+        console.error('[sendToWorkflow] Catch error:', error);
         setMessages((prev) => [
           ...prev,
           {
@@ -173,6 +180,7 @@ function Chat() {
 
   /** 텍스트 입력 후 submit */
   const handleSubmit = async ({ text }: { text: string }) => {
+    console.log('[handleSubmit] text:', JSON.stringify(text), 'isLoading:', isLoading, 'suspendState:', suspendState);
     if (isLoading) return;
 
     const userText = text.trim();

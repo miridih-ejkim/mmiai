@@ -1,7 +1,7 @@
 import { createStep } from "@mastra/core/workflows";
 import { z } from "zod";
 import { MCP_REGISTRY, getAllMcpIds } from "../../mcp";
-import { workflowStateSchema } from "../state";
+import { workflowStateSchema, type RetryEntry } from "../state";
 
 /**
  * Sequential 모드에서 각 단계의 구조화된 쿼리
@@ -211,6 +211,7 @@ export const classifyIntentStep = createStep({
           threadId,
           mastra: mastra!,
           previousFeedback: undefined,
+          retryHistory: [],
         });
       }
 
@@ -229,6 +230,7 @@ export const classifyIntentStep = createStep({
             threadId,
             mastra: mastra!,
             previousFeedback: undefined,
+            retryHistory: [],
           });
         }
 
@@ -249,6 +251,7 @@ export const classifyIntentStep = createStep({
 
     // === 일반 분류 경로 ===
     const previousFeedback = state?.previousFeedback;
+    const retryHistory = state?.retryHistory ?? [];
 
     const classification = await classifyMessage({
       message: originalMessage,
@@ -257,6 +260,7 @@ export const classifyIntentStep = createStep({
       threadId,
       mastra: mastra!,
       previousFeedback,
+      retryHistory,
     });
 
     // clarify → suspend
@@ -292,6 +296,7 @@ async function classifyMessage(params: {
   threadId: string;
   mastra: any;
   previousFeedback: string | undefined;
+  retryHistory: RetryEntry[];
 }): Promise<ClassificationOutput> {
   const {
     message,
@@ -300,6 +305,7 @@ async function classifyMessage(params: {
     threadId,
     mastra,
     previousFeedback,
+    retryHistory,
   } = params;
 
   // 활성 MCP만 포함한 동적 프롬프트 구성
@@ -314,12 +320,27 @@ async function classifyMessage(params: {
 [AVAILABLE AGENTS]
 ${activeAgentDescriptions || "(none — classify as simple)"}`;
 
-  // 이전 루프 피드백이 있으면 추가
-  if (previousFeedback) {
+  // 재시도 이력이 있으면 전체 이력 주입
+  if (retryHistory.length > 0) {
+    const historyLines = retryHistory.map((entry) => {
+      const querySummary = Object.entries(entry.queries ?? {})
+        .map(([agent, q]) => `${agent}="${q}"`)
+        .join(", ");
+      return `- Attempt ${entry.attempt}: targets=[${entry.targets.join(", ")}] queries={${querySummary}} mode=${entry.executionMode} reason="${entry.reason}"${entry.confidence != null ? ` confidence=${entry.confidence.toFixed(2)}` : ""}`;
+    }).join("\n");
+
+    dynamicPrompt += `
+
+[RETRY HISTORY]
+이전 ${retryHistory.length}회 시도의 품질이 부족했습니다. 각 시도의 피드백을 참고하여 개선하세요:
+${historyLines}
+
+${previousFeedback ? `최신 피드백:\n${previousFeedback}\n` : ""}같은 Agent를 다시 사용해도 좋지만, 피드백에서 지적된 부족한 부분을 보완할 수 있도록 쿼리나 접근 방식을 조정하세요.`;
+  } else if (previousFeedback) {
     dynamicPrompt += `
 
 [PREVIOUS FEEDBACK]
-이전 실행 결과가 품질 기준을 통과하지 못했습니다. 아래 피드백을 참고하여 개선된 전략을 수립하세요:
+이전 실행 결과의 품질이 부족했습니다. 아래 피드백을 참고하여 부족한 부분을 보완하세요:
 ${previousFeedback}`;
   }
 

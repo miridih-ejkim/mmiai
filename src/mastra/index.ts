@@ -108,6 +108,7 @@ export async function initializeMastra(): Promise<{
           handler: async (c) => {
             try {
               const body = await c.req.json();
+              console.log("[/chat] Request body:", JSON.stringify(body, null, 2));
               const workflow = mastra.getWorkflow("chatWorkflow");
 
               // 사용자별 활성 MCP 조회
@@ -124,6 +125,7 @@ export async function initializeMastra(): Promise<{
               requestContext.set("activeMcpIds", activeMcpIds);
 
               let result: any;
+              let runId: string;
 
               if (body.runId && body.resumeData) {
                 const action = body.resumeData.action;
@@ -131,6 +133,7 @@ export async function initializeMastra(): Promise<{
                 if (action === "new") {
                   // === New: 사용자의 새 질문으로 새 워크플로우 시작 ===
                   const run = await workflow.createRun();
+                  runId = run.runId;
                   result = await run.start({
                     inputData: {
                       message: body.resumeData.userFeedback || "",
@@ -138,6 +141,9 @@ export async function initializeMastra(): Promise<{
                     initialState: {
                       executionTargets: [],
                       executionMode: "parallel" as const,
+                      executionQueries: {},
+                      retryCount: 0,
+                      retryHistory: [],
                     },
                     requestContext,
                   });
@@ -148,6 +154,7 @@ export async function initializeMastra(): Promise<{
                   const run = await workflow.createRun({
                     runId: body.runId,
                   });
+                  runId = run.runId;
                   result = await run.resume({
                     step: body.suspendedStep || "classify-intent",
                     resumeData: body.resumeData,
@@ -157,6 +164,7 @@ export async function initializeMastra(): Promise<{
               } else {
                 // === New: 새 워크플로우 실행 ===
                 const run = await workflow.createRun();
+                runId = run.runId;
                 result = await run.start({
                   inputData: body.inputData || {
                     message: body.message || "",
@@ -164,48 +172,72 @@ export async function initializeMastra(): Promise<{
                   initialState: {
                     executionTargets: [],
                     executionMode: "parallel" as const,
+                    executionQueries: {},
+                    retryCount: 0,
+                    retryHistory: [],
                   },
                   requestContext,
                 });
               }
 
+              console.log("[/chat] Workflow result status:", result.status, "runId:", runId);
+              console.log("[/chat] Workflow result keys:", Object.keys(result));
+              if (result.status === "suspended") {
+                console.log("[/chat] suspended paths:", JSON.stringify(result.suspended));
+                console.log("[/chat] result.steps keys:", Object.keys(result.steps || {}));
+              }
+
               // Suspended → HITL 응답 (classify-intent에서 suspend)
               if (result.status === "suspended") {
-                // suspendPayload는 nested workflow 구조:
-                // result.suspendPayload = { "classify-and-execute": { hitlType, clarifyQuestion, ... } }
-                // 최상위에서 sub-workflow key를 unwrap해야 실제 payload에 접근 가능
-                const rawPayload = result.suspendPayload as Record<string, any> | undefined;
-                const suspendPayload = (
-                  rawPayload?.["classify-and-execute"] ||  // nested workflow unwrap
-                  rawPayload                               // fallback: 직접 payload
-                ) as
-                  | {
-                      hitlType: "clarify" | "ambiguous";
-                      clarifyQuestion?: string;
-                      candidates?: Array<{
-                        planId: string;
-                        label: string;
-                        description: string;
-                        targets: string[];
-                        executionMode: "parallel" | "sequential";
-                        expectedOutcome: string;
-                      }>;
-                      originalMessage?: string;
-                    }
-                  | undefined;
+                // Evented engine: suspendPayload는 result.steps[stepId].suspendPayload에 위치
+                // Non-evented engine: result.suspendPayload = { "step-id": { ... } }
+                // 두 엔진 모두 지원하기 위해 steps에서 먼저 추출 시도
+                const suspendedStep = result.suspended?.[0]; // e.g., ["classify-and-execute", "classify-intent"]
+                const topStepId = suspendedStep?.[0]; // e.g., "classify-and-execute"
 
-                // suspended path를 클라이언트에 전달 (resume 시 사용)
-                const suspendedStep = result.suspended?.[0];
+                let suspendPayload: {
+                  hitlType: "clarify" | "ambiguous";
+                  clarifyQuestion?: string;
+                  candidates?: Array<{
+                    planId: string;
+                    label: string;
+                    description: string;
+                    targets: string[];
+                    executionMode: "parallel" | "sequential";
+                    expectedOutcome: string;
+                  }>;
+                  originalMessage?: string;
+                } | undefined;
 
-                return c.json({
+                // 1) Evented engine: result.steps[stepId].suspendPayload (직접 payload)
+                if (topStepId && result.steps?.[topStepId]?.suspendPayload) {
+                  const stepPayload = result.steps[topStepId].suspendPayload;
+                  // __workflow_meta가 있으면 strip (framework metadata)
+                  const { __workflow_meta, ...userPayload } = stepPayload;
+                  suspendPayload = userPayload as typeof suspendPayload;
+                }
+                // 2) Non-evented engine fallback: result.suspendPayload = { "step-id": { ... } }
+                if (!suspendPayload && result.suspendPayload) {
+                  const rawPayload = result.suspendPayload as Record<string, any>;
+                  suspendPayload = (
+                    rawPayload?.[topStepId || "classify-and-execute"] ||
+                    rawPayload
+                  ) as typeof suspendPayload;
+                }
+
+                console.log("[/chat] Extracted suspendPayload:", JSON.stringify(suspendPayload, null, 2));
+
+                const responsePayload = {
                   status: "suspended",
-                  runId: result.runId,
+                  runId,
                   suspendedStep,
                   hitlType: suspendPayload?.hitlType || "clarify",
                   clarifyQuestion: suspendPayload?.clarifyQuestion,
                   candidates: suspendPayload?.candidates,
                   originalMessage: suspendPayload?.originalMessage,
-                });
+                };
+                console.log("[/chat] Sending suspended response:", JSON.stringify(responsePayload, null, 2));
+                return c.json(responsePayload);
               }
 
               // Completed — 응답은 finalResponser의 공유 Memory에 자동 기록됨
