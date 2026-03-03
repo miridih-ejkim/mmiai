@@ -51,3 +51,6 @@ dist
 
 google-search-mcp/node_modules
 .env*.local
+
+
+logs/*
