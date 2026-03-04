@@ -24,6 +24,7 @@ import {
   getChatById,
   createChat,
   saveMessages,
+  updateChatTitle,
 } from "../lib/db/queries";
 
 import {
@@ -310,6 +311,25 @@ export async function initializeMastra(): Promise<{
                     delta: text,
                   });
                   writer.write({ type: "text-end", id: msgId });
+
+                  // Sync Memory-generated thread title to chat DB (on completion only)
+                  if (chatId) {
+                    try {
+                      const thread = await conversationMemory.getThreadById({
+                        threadId,
+                      });
+                      if (thread?.title) {
+                        await updateChatTitle(chatId, thread.title);
+                        console.log(
+                          "[/chat] Title synced: %s → %s",
+                          chatId,
+                          thread.title,
+                        );
+                      }
+                    } catch (e) {
+                      console.error("[/chat] Title sync error:", e);
+                    }
+                  }
                 }
               },
               onFinish: async ({ responseMessage }) => {

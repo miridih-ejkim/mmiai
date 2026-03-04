@@ -1,5 +1,6 @@
 import { Agent } from "@mastra/core/agent";
 import { Memory } from "@mastra/memory";
+import { currentTimeTool } from "../tools/current-time";
 /**
  * Classifier Agent 설정
  * 의도 분류 전용 (structured output)
@@ -10,7 +11,16 @@ const classifierAgentConfig = {
   id: "classifier-agent",
   name: "Classifier Agent",
   model: "anthropic/claude-sonnet-4-5" as const,
+  tools: {
+    getCurrentDatetime: currentTimeTool,
+  },
   instructions: `You are an intent classifier and execution planner. Analyze the user's message, classify it, and plan the execution strategy.
+
+## Time-Sensitive Queries
+When the user's message contains time-sensitive keywords (e.g., "최근", "요즘", "latest", "현재", "올해", "이번 달", "today", "this week", "recent"), you MUST:
+1. First call the get-current-datetime tool to get the exact current date.
+2. Include the current date/year in the search query you construct for the agent (e.g., "AI 트렌드 2026년 3월", "latest AI news March 2026").
+3. These queries almost always require a web search agent (e.g., "google-search") — do NOT classify as "simple" unless no search agent is available.
 
 ## Classification Process
 
@@ -23,7 +33,7 @@ For each user query, think through these steps:
 Then classify:
 
 ### "simple"
-No external data source needed. Greetings, small talk, general knowledge.
+No external data source needed. Greetings, small talk, general knowledge that is NOT time-sensitive.
 
 ### "agent" (confidence > 90%)
 Exactly one clear execution plan. You know which agent(s) to call and can construct a specific, complete query.
