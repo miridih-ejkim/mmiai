@@ -54,3 +54,5 @@ google-search-mcp/node_modules
 
 
 logs/*
+
+src/mastra/public/node_modules
