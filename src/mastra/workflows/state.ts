@@ -35,6 +35,8 @@ export type RetryEntry = z.infer<typeof retryEntrySchema>;
 export const workflowStateSchema = z.object({
   /** 원본 사용자 메시지 (dountil 루프 across iteration 유지용) */
   originalMessage: z.string().optional(),
+  /** clarify resume 시 사용자가 제공한 추가 정보 (구조화된 상태로 보존) */
+  clarifyAnswer: z.string().optional(),
   /** 실행된 Agent 목록 (MCP ID) */
   executionTargets: z.array(z.string()).default([]),
   /** 실행 모드 (parallel | sequential) */

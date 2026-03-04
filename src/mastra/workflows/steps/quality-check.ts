@@ -28,8 +28,13 @@ export const qualityCheckStep = createStep({
   stateSchema: workflowStateSchema,
   execute: async ({ inputData, getInitData, state, setState }) => {
     const initData = getInitData<{ message: string }>();
-    // dountil 2차+ iteration에서는 initData.message가 없으므로 state에서 복원
-    const originalMessage = initData?.message || state?.originalMessage || "";
+    const originalMessage = state?.originalMessage || initData?.message || "";
+    // clarify resume 시 사용자가 제공한 추가 정보 (workflow state에 구조화 저장)
+    const clarifyAnswer = state?.clarifyAnswer;
+    // 품질 평가에 사용할 전체 사용자 의도 (원본 질문 + clarify 답변)
+    const fullUserIntent = clarifyAnswer
+      ? `${originalMessage} (사용자 추가 정보: ${clarifyAnswer})`
+      : originalMessage;
 
     const currentState = state ?? {
       executionTargets: [],
@@ -57,7 +62,7 @@ export const qualityCheckStep = createStep({
     // === 실패 → retry ===
     if (!inputData.success || inputData.content.trim().length === 0) {
       const reason = "Agent 실행 실패 또는 빈 결과";
-      const feedback = `Agent 실행이 실패했거나 결과가 비어있습니다.\n실행 대상: ${inputData.source}\n원본 질문: ${originalMessage}`;
+      const feedback = `Agent 실행이 실패했거나 결과가 비어있습니다.\n실행 대상: ${inputData.source}\n원본 질문: ${fullUserIntent}`;
 
       const entry = createRetryEntry(reason);
       setState({
@@ -80,7 +85,7 @@ export const qualityCheckStep = createStep({
     try {
       const scorerResult = await qualityScorer.run({
         input: {
-          userMessage: originalMessage,
+          userMessage: fullUserIntent,
           content: inputData.content,
           source: inputData.source,
         },
@@ -132,7 +137,7 @@ export const qualityCheckStep = createStep({
 
     if (score < QUALITY_THRESHOLD) {
       const reason = scorerReason || `score: ${score.toFixed(2)}`;
-      const feedback = `품질 부족 (${reason}).\n실행 대상: ${inputData.source}\n원본 결과 (일부):\n${inputData.content.slice(0, 500)}\n원본 질문: ${originalMessage}`;
+      const feedback = `품질 부족 (${reason}).\n실행 대상: ${inputData.source}\n원본 결과 (일부):\n${inputData.content.slice(0, 500)}\n원본 질문: ${fullUserIntent}`;
 
       const entry = createRetryEntry(`품질 부족: ${reason}`);
       setState({

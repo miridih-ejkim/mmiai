@@ -28,6 +28,12 @@ export function Chat({
   const hasNavigated = useRef(false);
   const [input, setInput] = useState('');
 
+  // Clarify suspend 메타데이터 — 서버에서 transient data part로 수신, 다음 요청에 포함
+  const suspendMetaRef = useRef<{
+    runId: string;
+    suspendedStep: string[] | string;
+  } | null>(null);
+
   const {
     messages,
     sendMessage,
@@ -41,16 +47,31 @@ export function Chat({
     transport: new DefaultChatTransport({
       api: '/mastra/chat',
       body: { userId, chatId: id },
-      prepareSendMessagesRequest: ({ id: chatId, messages: msgs, body }) => ({
-        body: {
+      prepareSendMessagesRequest: ({ id: chatId, messages: msgs, body }) => {
+        const reqBody: Record<string, unknown> = {
           ...body,
           chatId,
           messages: msgs,
-        },
-      }),
+        };
+        // Clarify resume: suspend 메타데이터 포함 후 초기화
+        if (suspendMetaRef.current) {
+          console.log('[useChat] Including suspendMeta in request:', suspendMetaRef.current);
+          reqBody.suspendMeta = suspendMetaRef.current;
+          suspendMetaRef.current = null;
+        }
+        return { body: reqBody };
+      },
     }),
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
     experimental_throttle: 100,
+    onData: (dataPart: any) => {
+      console.log('[useChat] onData received:', dataPart);
+      // 서버에서 transient data-suspend-meta part 수신 시 저장
+      if (dataPart.type === 'data-suspend-meta') {
+        console.log('[useChat] suspendMeta saved:', dataPart.data);
+        suspendMetaRef.current = dataPart.data;
+      }
+    },
     onFinish: () => {
       mutate(`/api/chats?userId=${userId}`);
     },

@@ -259,17 +259,21 @@ export const classifyIntentStep = createStep({
 
     // === Resume 경로 ===
     if (resumeData) {
-      // clarify: 사용자 답변 → 원본 + 답변 결합하여 재분류
+      // clarify: 사용자 답변 → state.clarifyAnswer에 구조화 저장 후 재분류
       if (resumeData.userAnswer) {
-        const enrichedMessage = `${originalMessage}\n\n사용자 추가 정보: ${resumeData.userAnswer}`;
+        // clarify 답변을 workflow state에 구조화된 필드로 저장
+        // originalMessage는 변경하지 않음 — 원본 질문 보존
+        await setState({ ...state, clarifyAnswer: resumeData.userAnswer });
+
         return await classifyMessage({
-          message: enrichedMessage,
+          message: originalMessage,
           activeMcpIds,
           userId,
           threadId,
           mastra: mastra!,
           previousFeedback: undefined,
           retryHistory: [],
+          clarifyAnswer: resumeData.userAnswer,
         });
       }
 
@@ -316,6 +320,7 @@ export const classifyIntentStep = createStep({
       mastra: mastra!,
       previousFeedback,
       retryHistory,
+      clarifyAnswer: state?.clarifyAnswer,
     });
 
     // clarify → suspend
@@ -352,6 +357,7 @@ async function classifyMessage(params: {
   mastra: any;
   previousFeedback: string | undefined;
   retryHistory: RetryEntry[];
+  clarifyAnswer?: string;
 }): Promise<ClassificationOutput> {
   const {
     message,
@@ -361,6 +367,7 @@ async function classifyMessage(params: {
     mastra,
     previousFeedback,
     retryHistory,
+    clarifyAnswer,
   } = params;
 
   // 활성 MCP만 포함한 동적 시스템 컨텍스트 구성
@@ -396,6 +403,20 @@ ${previousFeedback ? `최신 피드백:\n${previousFeedback}\n` : ""}같은 Agen
 [PREVIOUS FEEDBACK]
 이전 실행 결과의 품질이 부족했습니다. 아래 피드백을 참고하여 부족한 부분을 보완하세요:
 ${previousFeedback}`;
+  }
+
+  // clarify resume 후 재분류: 사용자가 제공한 추가 정보를 구조화된 컨텍스트로 주입
+  if (clarifyAnswer) {
+    systemContext += `
+
+[CLARIFY ANSWER]
+사용자가 이전 clarify 질문에 대해 제공한 추가 정보입니다:
+"${clarifyAnswer}"
+
+이 정보는 사용자가 명시적으로 제공한 것이므로 반드시 반영하세요:
+- 이 정보를 원본 질문과 결합하여 완전한 쿼리를 구성하세요 (예: "날씨 알려줘" + "타이페이" → query: "타이페이 날씨")
+- 이미 제공된 정보에 대해 다시 clarify하지 마세요
+- 반드시 "agent" 타입으로 분류하고 적절한 Agent에게 전달하세요`;
   }
 
   systemContext += `
@@ -469,6 +490,34 @@ IMPORTANT: You may ONLY route to agents listed above. If no agents are available
     }
   }
 
-  // 후처리: 비활성 MCP 필터링
+  // 후처리: type/필드 불일치 교정 + 비활성 MCP 필터링
+  // LLM이 clarifyQuestion을 생성했지만 type을 "simple"로 잘못 설정한 경우 교정
+  if (classification.type !== "clarify" && classification.clarifyQuestion) {
+    console.warn(
+      `[classify-intent] Type mismatch: type="${classification.type}" but clarifyQuestion present. Correcting to "clarify".`,
+    );
+    classification = {
+      ...classification,
+      type: "clarify",
+      targets: [],
+      queries: [],
+    };
+  }
+  // LLM이 candidates를 생성했지만 type을 "ambiguous"로 설정하지 않은 경우 교정
+  if (
+    classification.type !== "ambiguous" &&
+    classification.candidates &&
+    classification.candidates.length > 0
+  ) {
+    console.warn(
+      `[classify-intent] Type mismatch: type="${classification.type}" but candidates present. Correcting to "ambiguous".`,
+    );
+    classification = {
+      ...classification,
+      type: "ambiguous",
+      targets: [],
+      queries: [],
+    };
+  }
   return validateClassification(classification, activeMcpIds);
 }

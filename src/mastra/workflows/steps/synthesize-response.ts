@@ -37,6 +37,9 @@ export const synthesizeResponseStep = createStep({
 
     let prompt: string;
 
+    // clarify resume 시 사용자가 제공한 추가 정보
+    const clarifyAnswer = state?.clarifyAnswer;
+
     if (source === "direct") {
       // simple 타입: 사용자 메시지를 기반으로 직접 응답
       prompt = initData?.message || state?.originalMessage || content;
@@ -44,7 +47,7 @@ export const synthesizeResponseStep = createStep({
       // Agent 결과를 기반으로 응답 합성
       const userQuestion = initData?.message || state?.originalMessage || "";
       prompt = `사용자 질문: ${userQuestion}
-
+${clarifyAnswer ? `\n사용자가 추가로 제공한 정보: ${clarifyAnswer}\n` : ""}
 검색 결과 (출처: ${source}):
 ${content}
 

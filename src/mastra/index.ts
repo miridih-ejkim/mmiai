@@ -47,6 +47,13 @@ import {
 import { createFinalResponserAgent } from "./agents/final-responser";
 
 import { chatWorkflow } from "./workflows/chat-workflow";
+import {
+  a2aChatbot,
+  a2aAtlassian,
+  a2aGoogleSearch,
+  a2aDataHub,
+  a2aSupervisor,
+} from "./a2a/agents";
 
 /**
  * Mastra 인스턴스 비동기 초기화
@@ -85,12 +92,19 @@ export async function initializeMastra(): Promise<{
   // Mastra 인스턴스 생성
   const mastra = new Mastra({
     agents: {
+      // Workflow용 Agent
       classifierAgent,
       finalResponserAgent,
       atlassianAgent,
       googleSearchAgent,
       dataHubAgent,
       dataAnalystAgent,
+      // A2A 전용 Agent (자기 완결적, MCP tools baked-in)
+      a2aChatbot,
+      a2aAtlassian,
+      a2aGoogleSearch,
+      a2aDataHub,
+      a2aSupervisor,
     },
     workflows: {
       chatWorkflow,
@@ -143,12 +157,17 @@ export async function initializeMastra(): Promise<{
             requestContext.set("threadId", threadId);
             requestContext.set("activeMcpIds", activeMcpIds);
 
-            // Detect resume: old-style (runId+resumeData) or AI SDK tool-approval
-            const isDirectResume = !!(body.runId && body.resumeData);
+            // Detect resume: clarify (suspendMeta), old-style (runId+resumeData), or AI SDK tool-approval
+            console.log("[/chat] body keys:", Object.keys(body));
+            console.log("[/chat] body.suspendMeta:", JSON.stringify(body.suspendMeta));
+            const isClarifyResume = !!(body.suspendMeta?.runId);
+            console.log("[/chat] isClarifyResume:", isClarifyResume);
+            const isDirectResume = !isClarifyResume && !!(body.runId && body.resumeData);
             const isToolApprovalResume =
+              !isClarifyResume &&
               !isDirectResume &&
               detectToolApprovalResume(incomingMessages);
-            const isResume = isDirectResume || isToolApprovalResume;
+            const isResume = isClarifyResume || isDirectResume || isToolApprovalResume;
 
             let streamOutput: any;
             let runId: string;
@@ -160,7 +179,15 @@ export async function initializeMastra(): Promise<{
               };
               let resumeData: Record<string, unknown>;
 
-              if (isDirectResume) {
+              if (isClarifyResume) {
+                // Clarify resume: suspendMeta from client + user's latest message as answer
+                meta = {
+                  runId: body.suspendMeta.runId,
+                  suspendedStep: body.suspendMeta.suspendedStep,
+                };
+                const userAnswer = extractLastUserMessage(incomingMessages);
+                resumeData = { userAnswer };
+              } else if (isDirectResume) {
                 // Old client format: { runId, suspendedStep, resumeData }
                 meta = {
                   runId: body.runId,
@@ -256,25 +283,35 @@ export async function initializeMastra(): Promise<{
                 if (result.status === "suspended") {
                   // Extract suspend payload (evented/non-evented engine)
                   const payload = extractSuspendPayload(result);
-                  const toolCallId = generateId();
-                  const approvalId = generateId();
 
                   if (payload.hitlType === "clarify") {
+                    // Clarify: 일반 텍스트 메시지로 질문 출력
+                    const msgId = generateId();
+                    writer.write({ type: "text-start", id: msgId });
                     writer.write({
-                      type: "tool-input-available",
-                      toolCallId,
-                      toolName: "requestClarification",
-                      input: {
-                        question:
-                          payload.clarifyQuestion ||
-                          "추가 정보를 알려주세요.",
-                        _meta: {
-                          runId,
-                          suspendedStep: payload.suspendedStep,
-                        },
+                      type: "text-delta",
+                      id: msgId,
+                      delta:
+                        payload.clarifyQuestion ||
+                        "추가 정보를 알려주세요.",
+                    });
+                    writer.write({ type: "text-end", id: msgId });
+
+                    // Suspend 메타데이터를 data part로 전달 (클라이언트가 다음 요청에 포함)
+                    // transient: true → message.parts에 저장되지 않고 onData 콜백에만 전달
+                    writer.write({
+                      type: "data-suspend-meta" as const,
+                      data: {
+                        runId,
+                        suspendedStep: payload.suspendedStep,
+                        hitlType: "clarify",
                       },
+                      transient: true,
                     });
                   } else {
+                    // Ambiguous: 기존 tool-approval 방식 유지
+                    const toolCallId = generateId();
+                    const approvalId = generateId();
                     writer.write({
                       type: "tool-input-available",
                       toolCallId,
@@ -287,12 +324,12 @@ export async function initializeMastra(): Promise<{
                         },
                       },
                     });
+                    writer.write({
+                      type: "tool-approval-request",
+                      approvalId,
+                      toolCallId,
+                    });
                   }
-                  writer.write({
-                    type: "tool-approval-request",
-                    approvalId,
-                    toolCallId,
-                  });
                 } else {
                   // Completed → text chunk
                   // Mastra evented engine: result may be at different paths
@@ -435,6 +472,10 @@ interface SuspendPayloadResult {
 
 /** Check if last assistant message has tool-approval-responded parts */
 function detectToolApprovalResume(messages: UIMessage[]): boolean {
+  // 마지막 메시지가 user면 새 질문 → resume 아님
+  const lastMsg = messages[messages.length - 1];
+  if (lastMsg?.role === "user") return false;
+
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
   if (!lastAssistant) return false;
   return lastAssistant.parts.some(
