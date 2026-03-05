@@ -1,0 +1,9 @@
+services:
+  data-analyst:
+    build: .
+    ports:
+      - "4112:4112"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - SHAPER_BASE_URL=${SHAPER_BASE_URL:-http://host.docker.internal:5454}
+      - SHAPER_API_KEY=${SHAPER_API_KEY}
