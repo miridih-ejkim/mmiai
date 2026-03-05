@@ -48,11 +48,10 @@ import { createFinalResponserAgent } from "./agents/final-responser";
 
 import { chatWorkflow } from "./workflows/chat-workflow";
 import {
-  a2aChatbot,
+  a2aSupervisor,
   a2aAtlassian,
   a2aGoogleSearch,
   a2aDataHub,
-  a2aSupervisor,
 } from "./a2a/agents";
 
 /**
@@ -99,8 +98,7 @@ export async function initializeMastra(): Promise<{
       googleSearchAgent,
       dataHubAgent,
       dataAnalystAgent,
-      // A2A 전용 Agent (자기 완결적, MCP tools baked-in)
-      a2aChatbot,
+      // A2A 전용 Agent (자연어 소통 가능, MCP tools baked-in)
       a2aAtlassian,
       a2aGoogleSearch,
       a2aDataHub,

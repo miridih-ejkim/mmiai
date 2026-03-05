@@ -2,28 +2,13 @@
 
 import useSWR from 'swr';
 import Link from 'next/link';
-import { BotIcon, WrenchIcon, ZapIcon, GlobeIcon } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { BotIcon, GlobeIcon, WrenchIcon, ZapIcon } from 'lucide-react';
 import { fetcher } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
-
-interface AgentCard {
-  name: string;
-  description?: string;
-  skills?: Array<{ id: string; name: string; description?: string }>;
-  capabilities?: {
-    streaming?: boolean;
-  };
-  _meta?: {
-    source: 'external';
-    agentId: string;
-    baseUrl: string;
-    serverId: string;
-  };
-}
+import type { A2AAgentCardWithMeta } from '@/mastra/a2a/a2a-client';
 
 export function A2ATestbed() {
-  const { data: agents, isLoading } = useSWR<AgentCard[]>(
+  const { data: agents, isLoading } = useSWR<A2AAgentCardWithMeta[]>(
     '/api/a2a/agents',
     fetcher,
   );
@@ -57,60 +42,54 @@ export function A2ATestbed() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {agents.map((agent) => {
-              const isExternal = agent._meta?.source === 'external';
-              const agentId = isExternal ? agent._meta!.agentId : agent.name;
+              const isExternal = agent.source === 'external';
               const href = isExternal
-                ? `/a2a/${agentId}?baseUrl=${encodeURIComponent(agent._meta!.baseUrl)}`
-                : `/a2a/${agentId}`;
+                ? `/a2a/${agent.id}?baseUrl=${encodeURIComponent(agent.baseUrl!)}`
+                : `/a2a/${agent.id}`;
 
               return (
-                <Link
-                  key={isExternal ? `${agent._meta!.serverId}:${agentId}` : agent.name}
-                  href={href}
-                  className="group flex flex-col gap-3 rounded-xl border p-4 transition-colors hover:border-primary/50 hover:bg-accent"
-                >
-                  <div className="flex items-center gap-2">
-                    <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${isExternal ? 'bg-blue-500/10' : 'bg-primary/10'}`}>
-                      {isExternal ? (
-                        <GlobeIcon size={16} className="text-blue-500" />
-                      ) : (
-                        <BotIcon size={16} className="text-primary" />
-                      )}
-                    </div>
-                    <span className="font-medium">{agent.name}</span>
-                    {isExternal && (
-                      <Badge variant="outline" className="text-[10px]">
-                        External
-                      </Badge>
+              <Link
+                key={isExternal ? `${agent.serverId}:${agent.id}` : agent.id}
+                href={href}
+                className="group flex flex-col gap-3 rounded-xl border p-4 transition-colors hover:border-primary/50 hover:bg-accent"
+              >
+                <div className="flex items-center gap-2">
+                  <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${isExternal ? 'bg-blue-500/10' : 'bg-primary/10'}`}>
+                    {isExternal ? (
+                      <GlobeIcon size={16} className="text-blue-500" />
+                    ) : (
+                      <BotIcon size={16} className="text-primary" />
                     )}
                   </div>
-
-                  {agent.description && (
-                    <p className="line-clamp-2 text-sm text-muted-foreground">
-                      {agent.description}
-                    </p>
+                  <span className="font-medium">{agent.name}</span>
+                  {isExternal && (
+                    <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-500">
+                      external
+                    </span>
                   )}
+                </div>
 
-                  <div className="mt-auto flex items-center gap-3 text-xs text-muted-foreground">
-                    {agent.skills && agent.skills.length > 0 && (
-                      <span className="flex items-center gap-1">
-                        <WrenchIcon size={12} />
-                        {agent.skills.length} tools
-                      </span>
-                    )}
-                    {agent.capabilities?.streaming && (
-                      <span className="flex items-center gap-1">
-                        <ZapIcon size={12} />
-                        streaming
-                      </span>
-                    )}
-                    {isExternal && (
-                      <span className="truncate text-[10px] opacity-60">
-                        {agent._meta!.baseUrl}
-                      </span>
-                    )}
-                  </div>
-                </Link>
+                {agent.description && (
+                  <p className="line-clamp-2 text-sm text-muted-foreground">
+                    {agent.description}
+                  </p>
+                )}
+
+                <div className="mt-auto flex items-center gap-3 text-xs text-muted-foreground">
+                  {agent.skills && agent.skills.length > 0 && (
+                    <span className="flex items-center gap-1">
+                      <WrenchIcon size={12} />
+                      {agent.skills.length} tools
+                    </span>
+                  )}
+                  {agent.capabilities?.streaming && (
+                    <span className="flex items-center gap-1">
+                      <ZapIcon size={12} />
+                      streaming
+                    </span>
+                  )}
+                </div>
+              </Link>
               );
             })}
           </div>

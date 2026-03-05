@@ -31,29 +31,14 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-
-interface DiscoveredAgent {
-  server_id: string;
-  agent_id: string;
-  name: string;
-  description: string | null;
-  skills: string | null;
-}
-
-interface A2AServer {
-  id: string;
-  name: string;
-  base_url: string;
-  active: boolean;
-  agents: DiscoveredAgent[];
-}
+import type { A2AServerWithAgents } from '@/mastra/a2a/a2a-registry';
 
 export function ServerManagement() {
   const {
     data: servers,
     isLoading,
     mutate,
-  } = useSWR<A2AServer[]>('/api/a2a/servers', fetcher);
+  } = useSWR<A2AServerWithAgents[]>('/api/a2a/servers', fetcher);
   const [showDialog, setShowDialog] = useState(false);
   const [formId, setFormId] = useState('');
   const [formName, setFormName] = useState('');
@@ -253,7 +238,7 @@ function ServerCard({
   onToggle,
   onRediscover,
 }: {
-  server: A2AServer;
+  server: A2AServerWithAgents;
   onDelete: () => void;
   onToggle: (active: boolean) => void;
   onRediscover: () => void;
