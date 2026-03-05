@@ -1,116 +1,102 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
-
-const MASTRA_URL =
-  process.env.MASTRA_SERVER_URL || "http://localhost:4111";
+import { sendA2AMessage } from "../a2a-client";
+import type { A2AResponse } from "../a2a-client";
 
 /**
  * A2A 프로토콜로 다른 Agent를 호출하는 범용 도구
  *
- * Supervisor Agent가 이 도구를 사용하여 A2A Agent에게
- * JSON-RPC 2.0 메시지를 전송하고 응답을 받습니다.
+ * Supervisor Agent가 이 도구를 사용하여 A2A Agent를 호출합니다.
  *
- * A2AClient의 상대 URL 파싱 이슈를 회피하기 위해 직접 HTTP 호출합니다.
+ * 라우팅 전략:
+ * - 로컬 Agent (baseUrl 없음): mastra.getAgent()로 직접 호출 (HTTP 루프백 회피)
+ * - 외부 Agent (baseUrl 있음): A2A JSON-RPC 2.0 HTTP 호출
  */
 export const callA2AAgent = createTool({
   id: "call-a2a-agent",
   description:
-    "A2A 프로토콜로 다른 Agent를 호출합니다. agentId와 message를 지정하면 해당 Agent에게 JSON-RPC 2.0으로 메시지를 전송하고 응답을 반환합니다.",
+    "A2A 프로토콜로 다른 Agent를 호출합니다. agentId와 message를 지정하면 해당 Agent에게 메시지를 전송하고 응답을 반환합니다.",
   inputSchema: z.object({
     agentId: z
       .string()
-      .describe(
-        "호출할 Agent ID (예: a2aAtlassian, a2aGoogleSearch, a2aDataHub, a2aChatbot)",
-      ),
+      .describe("호출할 Agent ID (예: a2aChatbot, a2aSupervisor)"),
     message: z.string().describe("Agent에게 보낼 메시지"),
     context: z
       .string()
       .optional()
       .describe("이전 Agent 호출 결과 등 참고 컨텍스트"),
+    contextId: z
+      .string()
+      .optional()
+      .describe(
+        "A2A 대화 세션 ID. 같은 Agent에 대한 연속 호출 시 이전 응답의 contextId를 전달하여 대화 맥락 유지",
+      ),
     baseUrl: z
       .string()
       .optional()
       .describe(
-        "외부 A2A 서버의 base URL (예: http://localhost:5000). 생략 시 로컬 Mastra 서버 사용. A2A 엔드포인트는 {baseUrl}/api/a2a/{agentId} 형태여야 합니다.",
+        "외부 A2A 서버의 base URL (예: http://localhost:5000). 생략 시 로컬 Agent를 직접 호출.",
       ),
   }),
   outputSchema: z.object({
     agentId: z.string(),
-    status: z.string(),
+    taskId: z.string().optional().describe("서버가 생성한 Task ID"),
+    contextId: z.string().optional().describe("대화 세션 ID (후속 호출에 재사용)"),
+    status: z.string().describe("Task 상태 (completed, failed, working 등)"),
     response: z.string(),
   }),
-  execute: async ({ agentId, message, context: prevContext, baseUrl }) => {
-    const fullMessage = prevContext
-      ? `${message}\n\n[이전 단계 결과]\n${prevContext}`
-      : message;
+  execute: async (
+    { agentId, message, context: prevContext, contextId, baseUrl },
+    toolContext,
+  ) => {
+    // 외부 Agent: A2A HTTP 호출
+    if (baseUrl) {
+      return sendA2AMessage({
+        agentId,
+        message,
+        context: prevContext,
+        contextId,
+        baseUrl,
+      });
+    }
 
-    // A2A JSON-RPC 2.0 직접 호출 (외부 서버 지원)
-    const serverUrl = baseUrl || MASTRA_URL;
-    const res = await fetch(`${serverUrl}/api/a2a/${agentId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: crypto.randomUUID(),
-        method: "message/send",
-        params: {
-          message: {
-            kind: "message",
-            messageId: crypto.randomUUID(),
-            role: "user",
-            parts: [{ kind: "text", text: fullMessage }],
-          },
-          configuration: {
-            acceptedOutputModes: ["text"],
-            blocking: true,
-          },
-        },
-      }),
-    });
+    // 로컬 Agent: Mastra 직접 호출 (HTTP 루프백 회피 → 타임아웃 방지)
+    const mastra = toolContext?.mastra;
+    if (!mastra) {
+      return sendA2AMessage({ agentId, message, context: prevContext, contextId });
+    }
 
-    if (!res.ok) {
+    try {
+      const agent = (mastra as any).getAgent(agentId);
+      if (!agent) {
+        return {
+          agentId,
+          status: "error",
+          response: `로컬 Agent를 찾을 수 없습니다: ${agentId}`,
+        };
+      }
+
+      const fullMessage = prevContext
+        ? `${message}\n\n[이전 단계 결과]\n${prevContext}`
+        : message;
+
+      const result = await agent.generate(fullMessage);
+      const responseText =
+        typeof result.text === "string"
+          ? result.text
+          : JSON.stringify(result.text);
+
+      return {
+        agentId,
+        status: "completed",
+        response: responseText || "(응답 없음)",
+      } satisfies A2AResponse;
+    } catch (error) {
       return {
         agentId,
         status: "error",
-        response: `A2A 호출 실패: HTTP ${res.status}`,
+        response: `로컬 Agent 호출 오류: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
-
-    const data = await res.json();
-
-    // JSON-RPC 에러 처리
-    if (data.error) {
-      return {
-        agentId,
-        status: "error",
-        response: `A2A 에러: ${data.error.message || JSON.stringify(data.error)}`,
-      };
-    }
-
-    // 응답 파싱 (Task 또는 Message)
-    const result = data.result;
-    let responseText = "(응답 없음)";
-
-    if (result?.kind === "task") {
-      const parts = result.status?.message?.parts || [];
-      responseText = parts
-        .filter((p: any) => p.kind === "text")
-        .map((p: any) => p.text)
-        .join("\n");
-    } else if (result?.kind === "message") {
-      responseText = (result.parts || [])
-        .filter((p: any) => p.kind === "text")
-        .map((p: any) => p.text)
-        .join("\n");
-    }
-
-    return {
-      agentId,
-      status:
-        result?.kind === "task"
-          ? result.status?.state || "unknown"
-          : "completed",
-      response: responseText,
-    };
   },
 });

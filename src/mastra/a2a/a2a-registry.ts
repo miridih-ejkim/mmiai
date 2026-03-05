@@ -1,4 +1,5 @@
 import { PostgresStore } from "@mastra/pg";
+import { fetchAgentCard, fetchAgentIds } from "./a2a-client";
 
 /**
  * A2A Server Registry
@@ -190,19 +191,8 @@ export async function discoverAgents(
 
   try {
     // 1. Agent 목록 조회
-    const agentsRes = await fetch(`${baseUrl}/api/agents`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!agentsRes.ok) {
-      console.error(
-        `[A2A Registry] Failed to fetch agents from ${baseUrl}: ${agentsRes.status}`,
-      );
-      return [];
-    }
-
-    const agentsData = await agentsRes.json();
-    const agentIds = Object.keys(agentsData);
+    const agentIds = await fetchAgentIds(baseUrl);
+    if (agentIds.length === 0) return [];
 
     // 2. 각 agent의 AgentCard 수집
     const oldAgents = await getStore().db.any(
@@ -214,40 +204,36 @@ export async function discoverAgents(
     );
 
     for (const agentId of agentIds) {
-      try {
-        const cardRes = await fetch(
-          `${baseUrl}/api/.well-known/${agentId}/agent-card.json`,
-          { cache: "no-store", signal: AbortSignal.timeout(5000) },
-        );
-        if (!cardRes.ok) continue;
+      const card = await fetchAgentCard(baseUrl, agentId);
+      if (!card) continue;
 
-        const card = await cardRes.json();
-        const agent: A2ADiscoveredAgent = {
-          server_id: serverId,
-          agent_id: agentId,
-          name: card.name || agentId,
-          description: card.description || null,
-          skills: card.skills ? JSON.stringify(card.skills) : null,
-          discovered_at: new Date().toISOString(),
-        };
+      // skills 컬럼에 확장 메타데이터도 함께 저장 (DB 스키마 변경 없음)
+      const extendedMeta = JSON.stringify({
+        skills: card.skills || [],
+        version: card.version,
+        provider: card.provider,
+        capabilities: card.capabilities,
+      });
+      const agent: A2ADiscoveredAgent = {
+        server_id: serverId,
+        agent_id: agentId,
+        name: card.name || agentId,
+        description: card.description || null,
+        skills: extendedMeta,
+        discovered_at: new Date().toISOString(),
+      };
 
-        // Upsert
-        await getStore().db.none(
-          `INSERT INTO a2a_discovered_agents (server_id, agent_id, name, description, skills, discovered_at)
+      // Upsert
+      await getStore().db.none(
+        `INSERT INTO a2a_discovered_agents (server_id, agent_id, name, description, skills, discovered_at)
            VALUES ($1, $2, $3, $4, $5, NOW())
            ON CONFLICT (server_id, agent_id)
            DO UPDATE SET name = $3, description = $4, skills = $5, discovered_at = NOW()`,
-          [serverId, agentId, agent.name, agent.description, agent.skills],
-        );
+        [serverId, agentId, agent.name, agent.description, agent.skills],
+      );
 
-        oldIds.delete(agentId);
-        discovered.push(agent);
-      } catch (e) {
-        console.error(
-          `[A2A Registry] Failed to fetch card for ${agentId}:`,
-          e,
-        );
-      }
+      oldIds.delete(agentId);
+      discovered.push(agent);
     }
 
     // 더 이상 존재하지 않는 agent 제거
@@ -273,6 +259,15 @@ export interface AvailableA2AAgent {
   source: "local" | "external";
   baseUrl?: string;
   serverId?: string;
+  // Agent Card spec 필드
+  version?: string;
+  provider?: { organization: string; url?: string };
+  capabilities?: {
+    streaming?: boolean;
+    pushNotifications?: boolean;
+    stateTransitionHistory?: boolean;
+  };
+  skills?: Array<{ id: string; name: string; description?: string }>;
 }
 
 /**
@@ -288,34 +283,22 @@ export async function getAvailableA2AAgents(): Promise<AvailableA2AAgent[]> {
 
   // 1. 로컬 A2A agents
   try {
-    const agentsRes = await fetch(`${MASTRA_URL}/api/agents`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(5000),
-    });
-    if (agentsRes.ok) {
-      const agents = await agentsRes.json();
-      const a2aIds = Object.keys(agents).filter((id) =>
-        id.startsWith("a2a"),
-      );
-      for (const id of a2aIds) {
-        try {
-          const cardRes = await fetch(
-            `${MASTRA_URL}/api/.well-known/${id}/agent-card.json`,
-            { cache: "no-store", signal: AbortSignal.timeout(3000) },
-          );
-          if (cardRes.ok) {
-            const card = await cardRes.json();
-            result.push({
-              agentId: id,
-              name: card.name || id,
-              description: card.description || "",
-              source: "local",
-            });
-          }
-        } catch {
-          // skip individual card errors
-        }
-      }
+    const allIds = await fetchAgentIds(MASTRA_URL);
+    const a2aIds = allIds.filter((id) => id.startsWith("a2a"));
+
+    for (const id of a2aIds) {
+      const card = await fetchAgentCard(MASTRA_URL, id);
+      if (!card) continue;
+      result.push({
+        agentId: id,
+        name: card.name || id,
+        description: card.description || "",
+        source: "local",
+        version: card.version,
+        provider: card.provider,
+        capabilities: card.capabilities,
+        skills: card.skills,
+      });
     }
   } catch {
     console.error("[A2A Registry] Failed to fetch local agents");
@@ -331,6 +314,14 @@ export async function getAvailableA2AAgents(): Promise<AvailableA2AAgent[]> {
   )) as (A2ADiscoveredAgent & { base_url: string })[];
 
   for (const row of rows) {
+    // skills 컬럼에서 확장 메타데이터 복원
+    let parsedMeta: Record<string, unknown> = {};
+    try {
+      parsedMeta = JSON.parse(row.skills || "{}");
+    } catch {
+      parsedMeta = {};
+    }
+
     result.push({
       agentId: row.agent_id,
       name: row.name,
@@ -338,6 +329,22 @@ export async function getAvailableA2AAgents(): Promise<AvailableA2AAgent[]> {
       source: "external",
       baseUrl: row.base_url,
       serverId: row.server_id,
+      version: parsedMeta.version as string | undefined,
+      provider: parsedMeta.provider as
+        | { organization: string; url?: string }
+        | undefined,
+      capabilities: parsedMeta.capabilities as
+        | {
+            streaming?: boolean;
+            pushNotifications?: boolean;
+            stateTransitionHistory?: boolean;
+          }
+        | undefined,
+      skills: Array.isArray(parsedMeta.skills)
+        ? parsedMeta.skills
+        : Array.isArray(parsedMeta)
+          ? parsedMeta
+          : [],
     });
   }
 

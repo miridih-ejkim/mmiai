@@ -21,6 +21,22 @@ export const listA2AAgents = createTool({
         description: z.string(),
         source: z.enum(["local", "external"]),
         baseUrl: z.string().optional(),
+        version: z.string().optional(),
+        capabilities: z
+          .object({
+            streaming: z.boolean().optional(),
+            pushNotifications: z.boolean().optional(),
+          })
+          .optional(),
+        skills: z
+          .array(
+            z.object({
+              id: z.string(),
+              name: z.string(),
+              description: z.string().optional(),
+            }),
+          )
+          .optional(),
       }),
     ),
   }),
@@ -33,6 +49,9 @@ export const listA2AAgents = createTool({
         description: a.description,
         source: a.source,
         ...(a.baseUrl ? { baseUrl: a.baseUrl } : {}),
+        ...(a.version ? { version: a.version } : {}),
+        ...(a.capabilities ? { capabilities: a.capabilities } : {}),
+        ...(a.skills?.length ? { skills: a.skills } : {}),
       })),
     };
   },

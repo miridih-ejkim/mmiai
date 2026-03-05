@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAvailableA2AAgents } from "@/mastra/a2a/a2a-registry";
+import { fetchAgentCard, fetchAgentIds } from "@/mastra/a2a/a2a-client";
 
 const MASTRA_URL =
   process.env.MASTRA_SERVER_URL || "http://localhost:4111";
@@ -21,15 +22,17 @@ export async function GET() {
       externalCards = externalAgents
         .filter((a) => a.source === "external")
         .map((agent) => ({
+          id: agent.agentId,
           name: agent.name,
           description: agent.description,
-          skills: [],
-          _meta: {
-            serverId: agent.serverId,
-            agentId: agent.agentId,
-            baseUrl: agent.baseUrl,
-            source: "external",
-          },
+          version: agent.version,
+          provider: agent.provider,
+          capabilities: agent.capabilities,
+          skills: agent.skills || [],
+          // 라우팅용 (spec 외)
+          source: "external" as const,
+          baseUrl: agent.baseUrl,
+          serverId: agent.serverId,
         }));
     } catch (e) {
       console.error("[A2A API] External agents fetch error:", e);
@@ -50,29 +53,14 @@ export async function GET() {
  * 로컬 Mastra 서버에서 A2A AgentCard 수집
  */
 async function fetchLocalAgentCards() {
-  const url = `${MASTRA_URL}/api/agents`;
-  const agentsRes = await fetch(url, { cache: "no-store" });
-
-  if (!agentsRes.ok) {
-    console.error(`[A2A API] Mastra agents fetch failed: ${agentsRes.status}`);
-    return [];
-  }
-
-  const agents = await agentsRes.json();
-  const a2aAgentIds = Object.keys(agents).filter((id) =>
-    id.startsWith("a2a"),
-  );
+  const allIds = await fetchAgentIds(MASTRA_URL);
+  const a2aIds = allIds.filter((id) => id.startsWith("a2a"));
 
   const cards = await Promise.all(
-    a2aAgentIds.map(async (id) => {
-      try {
-        const cardUrl = `${MASTRA_URL}/api/.well-known/${id}/agent-card.json`;
-        const res = await fetch(cardUrl, { cache: "no-store" });
-        if (!res.ok) return null;
-        return await res.json();
-      } catch {
-        return null;
-      }
+    a2aIds.map(async (id) => {
+      const card = await fetchAgentCard(MASTRA_URL, id);
+      if (!card) return null;
+      return { ...card, id, source: "local" as const };
     }),
   );
 

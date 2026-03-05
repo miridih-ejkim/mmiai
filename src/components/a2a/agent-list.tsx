@@ -6,26 +6,11 @@ import useSWR from 'swr';
 import { BotIcon, WrenchIcon, GlobeIcon } from 'lucide-react';
 import { fetcher } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
-
-interface AgentCard {
-  name: string;
-  description?: string;
-  url?: string;
-  skills?: Array<{ id: string; name: string; description?: string }>;
-  capabilities?: {
-    streaming?: boolean;
-  };
-  _meta?: {
-    source: 'external';
-    agentId: string;
-    baseUrl: string;
-    serverId: string;
-  };
-}
+import type { A2AAgentCardWithMeta } from '@/mastra/a2a/a2a-client';
 
 export function AgentList() {
   const pathname = usePathname();
-  const { data: agents, isLoading } = useSWR<AgentCard[]>(
+  const { data: agents, isLoading } = useSWR<A2AAgentCardWithMeta[]>(
     '/api/a2a/agents',
     fetcher,
   );
@@ -53,16 +38,16 @@ export function AgentList() {
   return (
     <div className="flex flex-col gap-1 px-2">
       {agents.map((agent) => {
-        const isExternal = agent._meta?.source === 'external';
-        const agentId = isExternal ? agent._meta!.agentId : agent.name;
+        const isExternal = agent.source === 'external';
+        const agentId = agent.id;
         const href = isExternal
-          ? `/a2a/${agentId}?baseUrl=${encodeURIComponent(agent._meta!.baseUrl)}`
+          ? `/a2a/${agentId}?baseUrl=${encodeURIComponent(agent.baseUrl!)}`
           : `/a2a/${agentId}`;
         const isActive = pathname === `/a2a/${agentId}`;
 
         return (
           <Link
-            key={isExternal ? `${agent._meta!.serverId}:${agentId}` : agentId}
+            key={isExternal ? `${agent.serverId}:${agentId}` : agentId}
             href={href}
             className={`flex flex-col gap-1 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-sidebar-accent ${
               isActive

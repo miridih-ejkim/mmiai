@@ -146,7 +146,7 @@ export const MCP_REGISTRY: McpServerRegistryEntry[] = [
     id: "datahub",
     name: "DataHub",
     description:
-      "Data catalog exploration: table search, schema inspection, lineage. Keywords: 테이블, 데이터셋, 스키마, 리니지, lineage, 메타데이터. Use alone for simple metadata questions. For analysis+dashboard requests, use with data-analyst in sequential mode.",
+      "Data catalog exploration: table/dataset search, schema inspection, column details, lineage. Also use when the user asks to write or create a SQL query referencing a specific database or table — look up the real schema first, then generate accurate SQL. Keywords: 테이블, 데이터셋, 스키마, 리니지, lineage, 메타데이터, 쿼리, SQL, Databricks, 조회. Use alone for simple metadata questions. For analysis+dashboard requests, use with data-analyst in sequential mode.",
     agentId: "dataHubAgent",
     classifierType: "datahub",
     buildServerDef: buildDatahubServer,
@@ -156,7 +156,7 @@ export const MCP_REGISTRY: McpServerRegistryEntry[] = [
     id: "data-analyst",
     name: "Data Analyst (Shaper Dashboard)",
     description:
-      "DuckDB SQL dashboard creation via Shaper. Receives data exploration results from previous steps and creates visual dashboards. Keywords: 대시보드, dashboard, 시각화, 분석, DuckDB, SQL, 차트, 리포트. Always used AFTER datahub in sequential mode.",
+      "DuckDB SQL dashboard creation via Shaper. Receives data exploration results from previous steps and creates visual dashboards. Also useful when the user needs a SQL query written based on real schema — datahub finds the schema, then data-analyst generates the query. Keywords: 대시보드, dashboard, 시각화, 분석, DuckDB, SQL, 차트, 리포트, 쿼리 작성. Always used AFTER datahub in sequential mode.",
     agentId: "dataAnalystAgent",
     classifierType: "data-analyst",
     buildServerDef: () => null,

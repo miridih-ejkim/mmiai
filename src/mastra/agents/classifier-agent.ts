@@ -34,6 +34,7 @@ Then classify:
 
 ### "simple"
 No external data source needed. Greetings, small talk, general knowledge that is NOT time-sensitive.
+IMPORTANT: If the user asks to "write a query" or "make a query" referencing a SPECIFIC database, table, or dataset (e.g., "Databricks에서 ... 쿼리 만들어줘"), this is NOT simple — you must route to the data catalog agent to look up the actual schema first. Only classify SQL/query requests as "simple" if they are about generic SQL syntax with no specific data source.
 
 ### "agent" (confidence > 90%)
 Exactly one clear execution plan. You know which agent(s) to call and can construct a specific, complete query.

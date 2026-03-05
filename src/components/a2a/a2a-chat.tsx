@@ -4,6 +4,7 @@ import { useState, useRef, useCallback } from 'react';
 import { BotIcon, SendIcon, SquareIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { generateUUID } from '@/lib/utils';
+import { sendA2AMessage } from '@/mastra/a2a/a2a-client';
 import { A2AMessage, ThinkingMessage } from './a2a-message';
 
 interface Message {
@@ -41,93 +42,21 @@ export function A2AChat({ agentId, baseUrl }: A2AChatProps) {
       abortRef.current = controller;
 
       try {
-        // 외부 서버는 직접 호출, 로컬은 rewrite 프록시 사용
-        const endpoint = baseUrl
-          ? `${baseUrl}/api/a2a/${agentId}`
-          : `/mastra/api/a2a/${agentId}`;
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const result = await sendA2AMessage({
+          agentId,
+          message: userMsg.text,
+          baseUrl,
           signal: controller.signal,
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: generateUUID(),
-            method: 'message/send',
-            params: {
-              message: {
-                kind: 'message',
-                messageId: userMsg.id,
-                role: 'user',
-                parts: [{ kind: 'text', text: userMsg.text }],
-              },
-              configuration: {
-                acceptedOutputModes: ['text'],
-                blocking: true,
-              },
-            },
-          }),
         });
-
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-
-        const data = await res.json();
-
-        // JSON-RPC 에러 처리
-        if (data.error) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: generateUUID(),
-              role: 'agent',
-              text: `오류: ${data.error.message || JSON.stringify(data.error)}`,
-            },
-          ]);
-          return;
-        }
-
-        // 응답 파싱: result는 Task 또는 Message
-        const result = data.result;
-        let agentText = '';
-
-        if (result?.kind === 'task') {
-          // Task 응답 — status.message 또는 artifacts에서 텍스트 추출
-          const statusMsg = result.status?.message;
-          if (statusMsg?.parts) {
-            agentText = statusMsg.parts
-              .filter((p: any) => p.kind === 'text')
-              .map((p: any) => p.text)
-              .join('\n');
-          }
-          // artifacts가 있으면 추가
-          if (result.artifacts?.length) {
-            const artifactTexts = result.artifacts
-              .flatMap((a: any) => a.parts || [])
-              .filter((p: any) => p.kind === 'text')
-              .map((p: any) => p.text);
-            if (artifactTexts.length) {
-              agentText = agentText
-                ? `${agentText}\n\n${artifactTexts.join('\n')}`
-                : artifactTexts.join('\n');
-            }
-          }
-        } else if (result?.kind === 'message') {
-          // 직접 Message 응답
-          agentText = (result.parts || [])
-            .filter((p: any) => p.kind === 'text')
-            .map((p: any) => p.text)
-            .join('\n');
-        } else if (typeof result === 'string') {
-          agentText = result;
-        }
 
         setMessages((prev) => [
           ...prev,
           {
             id: generateUUID(),
             role: 'agent',
-            text: agentText || '(응답 없음)',
+            text: result.status === 'error'
+              ? `오류: ${result.response}`
+              : result.response || '(응답 없음)',
           },
         ]);
       } catch (error: any) {
