@@ -9,7 +9,7 @@ import { getMcpTools } from "../utils";
  */
 export const a2aAtlassian = new Agent({
   id: "a2aAtlassian",
-  name: "Atlassian Agent",
+  name: "A2A Atlassian Agent",
   description:
     "Confluence 문서 검색/조회, Jira 이슈 검색/상세 조회, 사용자 프로필 조회 전문 Agent",
   model: "anthropic/claude-haiku-4-5" as const,

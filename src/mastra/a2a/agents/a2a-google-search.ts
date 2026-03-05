@@ -9,7 +9,7 @@ import { getMcpTools } from "../utils";
  */
 export const a2aGoogleSearch = new Agent({
   id: "a2aGoogleSearch",
-  name: "Google Search Agent",
+  name: "A2A Google Search Agent",
   description:
     "웹 검색, 최신 뉴스/트렌드 조회, 웹페이지 콘텐츠 추출 및 요약 전문 Agent",
   model: "anthropic/claude-haiku-4-5" as const,

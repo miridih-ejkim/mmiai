@@ -9,7 +9,7 @@ import { getMcpTools } from "../utils";
  */
 export const a2aDataHub = new Agent({
   id: "a2aDataHub",
-  name: "DataHub Agent",
+  name: "A2A DataHub Agent",
   description:
     "데이터 카탈로그 검색, 데이터셋/테이블 스키마 조회, 데이터 리니지 분석 전문 Agent",
   model: "anthropic/claude-haiku-4-5" as const,
