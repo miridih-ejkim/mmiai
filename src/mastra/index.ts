@@ -2,7 +2,7 @@
 import { Mastra } from "@mastra/core/mastra";
 import { RequestContext } from "@mastra/core/request-context";
 import { PinoLogger } from "@mastra/loggers";
-import { FileTransport } from "@mastra/loggers/file";
+import { FilteredFileTransport } from "./logger/filtered-file-transport";
 import { PostgresStore } from "@mastra/pg";
 import { Memory } from "@mastra/memory";
 
@@ -118,8 +118,22 @@ export async function initializeMastra(): Promise<{
     logger: new PinoLogger({
       name: "Mastra",
       level: "debug",
+      formatters: {
+        bindings: () => ({}), // pid, hostname 제거
+      },
       transports: {
-        file: new FileTransport({ path: "/Users/miridih/mmiai/logs/mastra.log" }),
+        file: new FilteredFileTransport({
+          dir: "/Users/miridih/mmiai/logs",
+          prefix: "mastra",
+          omitFields: ["pid", "hostname"],
+          excludePatterns: [
+            "[Observability] Event exported",
+            "Logger updated [component=",
+            "Batch flushed",
+            "[Observability] Initialized",
+            "Logger updated for exporter",
+          ],
+        }),
       },
     }),
     observability: new Observability({
