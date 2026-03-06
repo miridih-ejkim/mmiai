@@ -1,9 +1,21 @@
 FROM node:22-slim
 WORKDIR /app
+
+# 1. Install main dependencies
 COPY package*.json ./
-RUN npm ci --production
+RUN npm ci
+
+# 2. Copy source files needed for mastra build
+COPY tsconfig.json ./
 COPY src/mastra/ ./src/mastra/
+COPY src/lib/ ./src/lib/
+
+# 3. Install google-search-mcp dependencies
 COPY google-search-mcp/ ./google-search-mcp/
+RUN cd google-search-mcp && npm install --production
+
+# 4. Build Mastra server
 RUN npx mastra build
+
 EXPOSE 4111
 CMD ["npx", "mastra", "start"]

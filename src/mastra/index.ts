@@ -1,4 +1,6 @@
 // top-level await (ESM)
+import { resolve, dirname } from "node:path";
+import { existsSync } from "node:fs";
 import { Mastra } from "@mastra/core/mastra";
 import { RequestContext } from "@mastra/core/request-context";
 import { PinoLogger } from "@mastra/loggers";
@@ -54,6 +56,20 @@ import {
   a2aGoogleSearch,
   a2aDataHub,
 } from "./a2a/agents";
+
+/** mastra dev/build 시 process.cwd()가 .mastra/ 하위일 수 있으므로 프로젝트 루트를 찾음 */
+function resolveProjectRoot(): string {
+  let dir = process.cwd();
+  for (let i = 0; i < 10; i++) {
+    if (!dir.includes("/.mastra/") && existsSync(resolve(dir, "package.json"))) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return process.cwd();
+}
 
 /**
  * Mastra 인스턴스 비동기 초기화
@@ -123,7 +139,7 @@ export async function initializeMastra(): Promise<{
       },
       transports: {
         file: new FilteredFileTransport({
-          dir: "/Users/miridih/mmiai/logs",
+          dir: resolve(resolveProjectRoot(), "logs"),
           prefix: "mastra",
           omitFields: ["pid", "hostname"],
           excludePatterns: [

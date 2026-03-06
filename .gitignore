@@ -50,11 +50,9 @@ yarn-error.log*
 dist
 
 google-search-mcp/node_modules
-.env*.local
 
-
-logs/*
+# logs
+logs/
 
 src/mastra/public/node_modules
-
-docker/node_modules/*
+docker/node_modules

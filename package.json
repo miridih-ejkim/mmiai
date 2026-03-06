@@ -11,6 +11,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate",
+    "db:generate": "drizzle-kit generate",
+    "db:studio": "drizzle-kit studio",
+    "setup": "npm install && cd google-search-mcp && npm install && cd .. && npm run db:push",
     "mastra:dev": "mastra dev",
     "mastra:build": "mastra build",
     "mastra:start": "mastra start"
