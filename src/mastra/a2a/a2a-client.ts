@@ -1,15 +1,11 @@
 /**
  * A2A Client Utility
  *
- * @a2a-js/sdk 타입 기반 공유 유틸리티.
- * JSON-RPC 2.0 메시지 전송, 응답 파싱, Agent Card 조회를 통합.
+ * @a2a-js/sdk A2AClient 기반 공유 유틸리티.
+ * Agent Card 조회, 메시지 전송, 응답 파싱을 통합.
  * 서버(Node.js)와 브라우저 환경 모두에서 동작.
- *
- * A2AClient 클래스를 직접 사용하지 않는 이유:
- * - Mastra의 agent card 경로가 비표준 (/api/.well-known/{agentId}/agent-card.json)
- * - Agent card의 url 필드가 relative path라 Node.js fetch()에서 실패
- * - 1 client = 1 agent 모델이라 multi-agent 서버에서 비효율적
  */
+import { A2AClient } from "@a2a-js/sdk/client";
 import type {
   Message,
   MessageSendParams,
@@ -18,8 +14,6 @@ import type {
   TextPart,
   AgentCard,
   Artifact,
-  SendMessageResponse,
-  JSONRPCErrorResponse,
 } from "@a2a-js/sdk";
 
 // ── Types ──
@@ -66,27 +60,36 @@ export function getA2AEndpoint(
   return `${base}/api/a2a/${agentId}`;
 }
 
-// ── Message Building ──
+// ── A2AClient Cache ──
 
-export function buildMessageSendParams(
-  text: string,
-  options?: { contextId?: string; messageId?: string },
-): MessageSendParams {
-  const message: Message = {
-    kind: "message",
-    messageId: options?.messageId || crypto.randomUUID(),
-    role: "user",
-    parts: [{ kind: "text", text }],
-    ...(options?.contextId && { contextId: options.contextId }),
-  };
+const clientCache = new Map<string, A2AClient>();
 
-  return {
-    message,
-    configuration: {
-      acceptedOutputModes: ["text"],
-      blocking: true,
-    },
-  };
+/**
+ * Agent별 A2AClient 인스턴스를 캐시하여 반환.
+ *
+ * Mastra agent card는 url 필드를 상대 경로("/a2a/:agentId")로 반환하는데,
+ * SDK는 이를 그대로 fetch에 전달하여 Node.js에서 실패함.
+ * → agent card fetch 후 serviceEndpointUrl을 절대 URL로 패치.
+ */
+async function getOrCreateClient(agentId: string, baseUrl?: string): Promise<A2AClient> {
+  const base = (baseUrl || getDefaultBaseUrl()).replace(/\/$/, "");
+  const cacheKey = `${base}::${agentId}`;
+
+  let client = clientCache.get(cacheKey);
+  if (!client) {
+    // Mastra의 agent card 경로: /api prefix 필수 (서버 기본 prefix)
+    const agentCardPath = `api/.well-known/${agentId}/agent-card.json`;
+    client = new A2AClient(base, agentCardPath);
+    clientCache.set(cacheKey, client);
+
+    // agent card fetch 완료 대기 후, 상대 경로를 절대 URL로 패치
+    await client.getAgentCard();
+    const ep = (client as any).serviceEndpointUrl as string | undefined;
+    if (ep && ep.startsWith("/")) {
+      (client as any).serviceEndpointUrl = `${base}${ep}`;
+    }
+  }
+  return client;
 }
 
 // ── Send ──
@@ -94,65 +97,64 @@ export function buildMessageSendParams(
 export async function sendA2AMessage(
   options: A2ASendOptions,
 ): Promise<A2AResponse> {
-  const { agentId, message, contextId, baseUrl, context, signal } = options;
+  const { agentId, message, contextId, baseUrl, context } = options;
 
   const fullMessage = context
     ? `${message}\n\n[이전 단계 결과]\n${context}`
     : message;
 
-  const endpoint = getA2AEndpoint(agentId, baseUrl);
-  const params = buildMessageSendParams(fullMessage, { contextId });
+  const params: MessageSendParams = {
+    message: {
+      messageId: crypto.randomUUID(),
+      role: "user",
+      parts: [{ kind: "text", text: fullMessage }],
+      kind: "message",
+      ...(contextId && { contextId }),
+    },
+    configuration: {
+      acceptedOutputModes: ["text"],
+      blocking: true,
+    },
+  };
 
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    signal,
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: crypto.randomUUID(),
-      method: "message/send",
-      params,
-    }),
-  });
-
-  if (!res.ok) {
+  try {
+    const client = await getOrCreateClient(agentId, baseUrl);
+    const response = await client.sendMessage(params);
+    return parseA2AResult(agentId, response);
+  } catch (error) {
     return {
       agentId,
       status: "error",
-      response: `A2A 호출 실패: HTTP ${res.status}`,
+      response: `A2A 호출 실패: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
-
-  const data = await res.json();
-  return parseA2AResponse(agentId, data);
 }
 
 // ── Response Parsing ──
 
-export function parseA2AResponse(
+/**
+ * SDK SendMessageResponse(Message | Task)를 앱 A2AResponse로 변환
+ */
+function parseA2AResult(
   agentId: string,
-  data: { result?: unknown; error?: { message?: string } },
+  result: unknown,
 ): A2AResponse {
-  if (data.error) {
-    return {
-      agentId,
-      status: "error",
-      response: `A2A 에러: ${data.error.message || JSON.stringify(data.error)}`,
-    };
+  if (!result || typeof result !== "object") {
+    return { agentId, status: "unknown", response: "(응답 없음)" };
   }
 
-  const result = data.result as Record<string, unknown> | undefined;
+  const obj = result as Record<string, unknown>;
 
-  if (result?.kind === "task") {
-    return parseTaskResponse(agentId, result as unknown as Task);
+  if (obj.kind === "message") {
+    return parseMessageResponse(agentId, result as Message);
   }
 
-  if (result?.kind === "message") {
-    return parseMessageResponse(agentId, result as unknown as Message);
+  if (obj.kind === "task") {
+    return parseTaskResponse(agentId, result as Task);
   }
 
-  if (typeof result === "string") {
-    return { agentId, status: "completed", response: result };
+  if (typeof obj === "string") {
+    return { agentId, status: "completed", response: obj as unknown as string };
   }
 
   return { agentId, status: "unknown", response: "(응답 없음)" };
@@ -225,16 +227,10 @@ export async function fetchAgentIds(
 export async function fetchAgentCard(
   baseUrl: string,
   agentId: string,
-  options?: { signal?: AbortSignal },
 ): Promise<AgentCard | null> {
   try {
-    const url = `${baseUrl}/api/.well-known/${agentId}/agent-card.json`;
-    const res = await fetch(url, {
-      cache: "no-store",
-      signal: options?.signal || AbortSignal.timeout(5000),
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as AgentCard;
+    const client = await getOrCreateClient(agentId, baseUrl);
+    return await client.getAgentCard();
   } catch {
     return null;
   }
