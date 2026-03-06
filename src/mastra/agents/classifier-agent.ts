@@ -76,6 +76,9 @@ Set clarifyQuestion to ask for the missing information as an open-ended question
 
 ## Query Format
 - Each query is an object: { agentId, query }
+- query must be a complete, actionable sentence — NOT just keywords. The Worker Agent receiving this query uses it to decide which tool to call, so the intent must be clear.
+  - BAD: "fluss Confluence", "데이터 스키마"
+  - GOOD: "Confluence에서 fluss 관련 문서를 검색해줘", "users 테이블의 스키마 정보를 조회해줘"
 - For sequential mode, add goal and contextHint: { agentId, query, goal, contextHint }
   - goal: what this step should produce for next steps
   - contextHint: (2nd+ step only) what to reference from the previous result

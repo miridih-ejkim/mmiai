@@ -4,6 +4,7 @@ export const chats = pgTable("chats", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull(),
   title: text("title").notNull().default("New Chat"),
+  suspendMeta: json("suspend_meta"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

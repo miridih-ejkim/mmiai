@@ -17,7 +17,7 @@ export const agentResultSchema = z.object({
     ),
   content: z.string().describe("Agent 실행 결과 텍스트"),
   success: z.boolean().describe("실행 성공 여부"),
-  confidence: z.number().optional().describe("Worker Agent 자기 확신도 (0.0-1.0)"),
+  confidence: z.number().optional().nullable().describe("Worker Agent 자기 확신도 (0.0-1.0)"),
 });
 
 export type AgentResult = z.infer<typeof agentResultSchema>;
@@ -209,14 +209,15 @@ export const agentStep = createStep({
             }
           }
 
-          console.log(`[agent-step] ${entry.name} result: confidence=${output.confidence}, content length=${output.content.length}`);
+          const safeConfidence = Number.isFinite(output.confidence) ? output.confidence : undefined;
+          console.log(`[agent-step] ${entry.name} result: confidence=${safeConfidence}, content length=${output.content.length}`);
           previousResult = output.content;
           allResults.push(
             activeTargets.length === 1
               ? output.content
               : `[${entry.name}]\n${output.content}`,
           );
-          lastConfidence = output.confidence;
+          lastConfidence = safeConfidence;
           hasSuccessfulResult = true;
         }
 
@@ -275,7 +276,9 @@ export const agentStep = createStep({
                   throw genErr;
                 }
               }
-              confidences.push(output.confidence);
+              if (Number.isFinite(output.confidence)) {
+                confidences.push(output.confidence);
+              }
               return `[${entry.name}]\n${output.content}`;
             } catch (error) {
               return `[${entry.name}]\n오류: ${error instanceof Error ? error.message : String(error)}`;

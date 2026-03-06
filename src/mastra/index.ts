@@ -25,6 +25,7 @@ import {
   createChat,
   saveMessages,
   updateChatTitle,
+  updateChatSuspendMeta,
 } from "../lib/db/queries";
 
 import {
@@ -207,6 +208,11 @@ export async function initializeMastra(): Promise<{
                 resumeData,
                 requestContext,
               });
+
+              // Clear persisted suspend meta on resume
+              if (chatId) {
+                updateChatSuspendMeta(chatId, null).catch(() => {});
+              }
             } else {
               // === New: start workflow with latest user message ===
               const userText =
@@ -259,23 +265,31 @@ export async function initializeMastra(): Promise<{
             const stream = createUIMessageStream({
               originalMessages: incomingMessages,
               execute: async ({ writer }) => {
-                // Consume Mastra stream events (progress)
-                for await (const event of streamOutput) {
-                  if (
-                    event.type === "workflow-step-start" ||
-                    event.type === "workflow-step-finish"
-                  ) {
-                    // Could emit data parts for progress, skip for now
-                  }
-                }
+                // Consume Mastra stream events in background (non-blocking)
+                // This prevents the for-await iterator from blocking result access
+                // if the stream doesn't terminate cleanly.
+                streamOutput.consumeStream().catch((streamErr: unknown) => {
+                  console.warn("[/chat] Stream consumption error:", streamErr);
+                });
 
-                // Final result
+                try {
+                // Await result directly — independent of stream consumption
                 const result = await streamOutput.result;
                 console.log(
                   "[/chat] Workflow result status:",
                   result.status,
                   "runId:",
                   runId,
+                );
+                console.log(
+                  "[/chat] Result keys:",
+                  Object.keys(result),
+                  "result.result type:",
+                  typeof result.result,
+                  "result.result?.response?:",
+                  !!result.result?.response,
+                  "steps keys:",
+                  result.steps ? Object.keys(result.steps) : "none",
                 );
 
                 if (result.status === "suspended") {
@@ -306,6 +320,17 @@ export async function initializeMastra(): Promise<{
                       },
                       transient: true,
                     });
+
+                    // Persist suspend meta to DB for cross-navigation recovery
+                    if (chatId) {
+                      updateChatSuspendMeta(chatId, {
+                        runId,
+                        suspendedStep: payload.suspendedStep,
+                        hitlType: "clarify",
+                      }).catch((e) =>
+                        console.error("[/chat] Failed to save suspend meta:", e),
+                      );
+                    }
                   } else {
                     // Ambiguous: 기존 tool-approval 방식 유지
                     const toolCallId = generateId();
@@ -347,6 +372,11 @@ export async function initializeMastra(): Promise<{
                   });
                   writer.write({ type: "text-end", id: msgId });
 
+                  // Ensure suspend meta is cleared on completion
+                  if (chatId) {
+                    updateChatSuspendMeta(chatId, null).catch(() => {});
+                  }
+
                   // Sync Memory-generated thread title to chat DB (on completion only)
                   if (chatId) {
                     try {
@@ -365,6 +395,17 @@ export async function initializeMastra(): Promise<{
                       console.error("[/chat] Title sync error:", e);
                     }
                   }
+                }
+                } catch (resultErr) {
+                  console.error("[/chat] Result processing error:", resultErr);
+                  const msgId = generateId();
+                  writer.write({ type: "text-start", id: msgId });
+                  writer.write({
+                    type: "text-delta",
+                    id: msgId,
+                    delta: `워크플로우 처리 중 오류가 발생했습니다: ${resultErr instanceof Error ? resultErr.message : String(resultErr)}`,
+                  });
+                  writer.write({ type: "text-end", id: msgId });
                 }
               },
               onFinish: async ({ responseMessage }) => {

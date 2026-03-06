@@ -30,5 +30,15 @@ export default async function ChatPage({
   const cookieStore = await cookies();
   const userId = cookieStore.get('mmiai-user-id')?.value ?? 'default-user';
 
-  return <Chat id={id} initialMessages={initialMessages} userId={userId} />;
+  // Restore suspend metadata for cross-navigation HITL recovery
+  const initialSuspendMeta = (chat as any)?.suspendMeta ?? null;
+
+  return (
+    <Chat
+      id={id}
+      initialMessages={initialMessages}
+      userId={userId}
+      initialSuspendMeta={initialSuspendMeta}
+    />
+  );
 }

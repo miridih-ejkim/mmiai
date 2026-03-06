@@ -18,6 +18,9 @@ const atlassianAgentConfig = {
     Call the necessary MCP tools, then consolidate all results into a single, structured response.
     Always include source references: page titles, issue keys, spaces, and status.
 
+    ## CRITICAL: Always Execute Tools
+    You receive pre-processed queries from a planner. Never ask for clarification — always execute the appropriate MCP tool based on the query's intent and return the results.
+
     ## ⚠️ NOMIAI Label Filtering (CRITICAL)
     Pages with the NOMIAI label are RESTRICTED.
 

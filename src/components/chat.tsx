@@ -18,11 +18,16 @@ export function Chat({
   initialMessages,
   userId,
   isNewChat = false,
+  initialSuspendMeta = null,
 }: {
   id: string;
   initialMessages: UIMessage[];
   userId: string;
   isNewChat?: boolean;
+  initialSuspendMeta?: {
+    runId: string;
+    suspendedStep: string[] | string;
+  } | null;
 }) {
   const { mutate } = useSWRConfig();
   const hasNavigated = useRef(false);
@@ -32,7 +37,7 @@ export function Chat({
   const suspendMetaRef = useRef<{
     runId: string;
     suspendedStep: string[] | string;
-  } | null>(null);
+  } | null>(initialSuspendMeta);
 
   const {
     messages,

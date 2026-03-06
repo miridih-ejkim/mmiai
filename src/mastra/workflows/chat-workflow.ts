@@ -56,7 +56,14 @@ const classifyAndExecuteWorkflow = createWorkflow({
       inputData["direct-response"] ||
       inputData["agent-step"];
 
-    return result || { source: "unknown", content: "", success: false };
+    if (!result) return { source: "unknown", content: "", success: false };
+
+    // confidence가 null/NaN이면 undefined로 정규화 (Zod number 검증 호환)
+    if (result.confidence != null && !Number.isFinite(result.confidence)) {
+      result.confidence = undefined;
+    }
+
+    return result;
   })
   .then(qualityCheckStep)
   .commit();

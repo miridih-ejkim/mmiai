@@ -41,6 +41,13 @@ export async function updateChatTitle(chatId: string, title: string) {
   await db.update(chats).set({ title }).where(eq(chats.id, chatId));
 }
 
+export async function updateChatSuspendMeta(
+  chatId: string,
+  suspendMeta: { runId: string; suspendedStep: string[] | string; hitlType: string } | null,
+) {
+  await db.update(chats).set({ suspendMeta }).where(eq(chats.id, chatId));
+}
+
 export async function deleteChat(chatId: string) {
   await db.delete(chats).where(eq(chats.id, chatId));
 }

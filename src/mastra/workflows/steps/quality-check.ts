@@ -56,7 +56,7 @@ export const qualityCheckStep = createStep({
       executionMode: currentState.executionMode ?? "parallel",
       queries: currentState.executionQueries ?? [],
       reason,
-      confidence: inputData.confidence,
+      confidence: inputData.confidence ?? undefined,
     });
 
     // === 실패 → retry ===
