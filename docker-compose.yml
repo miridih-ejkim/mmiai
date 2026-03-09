@@ -1,8 +1,9 @@
 services:
   postgres:
+    platform: linux/amd64
     image: postgres:16-alpine
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_USER: miai
       POSTGRES_PASSWORD: password
@@ -15,17 +16,8 @@ services:
       timeout: 3s
       retries: 10
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 3s
-      timeout: 3s
-      retries: 5
-
   server:
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile.server
@@ -34,14 +26,12 @@ services:
     env_file: .env
     environment:
       - DATABASE_URL=postgresql://miai:password@postgres:5432/miai
-      - REDIS_URL=redis://redis:6379
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
 
   web:
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile.web
