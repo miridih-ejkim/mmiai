@@ -41,7 +41,6 @@ import {
   createAtlassianAgent,
   createGoogleSearchAgent,
   createDataHubAgent,
-  createDataAnalystAgent,
 } from "./agents/workers";
 import {
   createClassifierAgent,
@@ -88,8 +87,6 @@ export async function initializeMastra(): Promise<{
   const atlassianAgent = createAtlassianAgent();
   const googleSearchAgent = createGoogleSearchAgent();
   const dataHubAgent = createDataHubAgent();
-  const dataAnalystAgent = createDataAnalystAgent();
-
   // 공유 Memory 인스턴스 — classifier와 finalResponser가 같은 스레드에 읽기/쓰기
   // finalResponser가 응답을 기록하고, classifier가 대화 맥락을 recall
   const conversationMemory = new Memory({
@@ -114,7 +111,6 @@ export async function initializeMastra(): Promise<{
       atlassianAgent,
       googleSearchAgent,
       dataHubAgent,
-      dataAnalystAgent,
       // A2A 전용 Agent (자연어 소통 가능, MCP tools baked-in)
       a2aAtlassian,
       a2aGoogleSearch,

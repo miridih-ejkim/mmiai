@@ -2,4 +2,3 @@
 export { createAtlassianAgent } from "./atlassian-agent";
 export { createGoogleSearchAgent } from "./google-search-agent";
 export { createDataHubAgent } from "./datahub-agent";
-export { createDataAnalystAgent } from "./data-analyst-agent";

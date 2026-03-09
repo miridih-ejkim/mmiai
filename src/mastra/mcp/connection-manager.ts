@@ -53,7 +53,7 @@ export class McpConnectionManager {
       return {};
     }
 
-    // MCP 서버가 없는 엔트리 (빌트인 도구만 사용, e.g. data-analyst)
+    // MCP 서버가 없는 엔트리 (빌트인 도구만 사용)
     if (!entry.buildServerDef() && !entry.requiresFallback) {
       return {};
     }

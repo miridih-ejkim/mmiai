@@ -1,6 +1,5 @@
 services:
   postgres:
-    platform: linux/amd64
     image: postgres:16-alpine
     ports:
       - "5433:5432"
@@ -17,7 +16,6 @@ services:
       retries: 10
 
   server:
-    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile.server
@@ -31,7 +29,6 @@ services:
         condition: service_healthy
 
   web:
-    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile.web

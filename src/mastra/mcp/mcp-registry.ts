@@ -23,7 +23,7 @@ export interface McpServerRegistryEntry {
   buildServerDef: () => MastraMCPServerDefinition | null;
   /** DataHub 등 재귀 JSON Schema 문제로 fallback 도구가 필요한 경우 */
   requiresFallback?: boolean;
-  /** 다른 MCP의 연결을 재사용할 때 (예: data-analyst → datahub) */
+  /** 다른 MCP의 연결을 재사용할 때 */
   mcpId?: string;
 }
 
@@ -146,20 +146,11 @@ export const MCP_REGISTRY: McpServerRegistryEntry[] = [
     id: "datahub",
     name: "DataHub",
     description:
-      "Data catalog exploration: table/dataset search, schema inspection, column details, lineage. Also use when the user asks to write or create a SQL query referencing a specific database or table — look up the real schema first, then generate accurate SQL. Keywords: 테이블, 데이터셋, 스키마, 리니지, lineage, 메타데이터, 쿼리, SQL, Databricks, 조회. Use alone for simple metadata questions. For analysis+dashboard requests, use with data-analyst in sequential mode.",
+      "Data catalog exploration: table/dataset search, schema inspection, column details, lineage. Also use when the user asks to write or create a SQL query referencing a specific database or table — look up the real schema first, then generate accurate SQL. Keywords: 테이블, 데이터셋, 스키마, 리니지, lineage, 메타데이터, 쿼리, SQL, Databricks, 조회.",
     agentId: "dataHubAgent",
     classifierType: "datahub",
     buildServerDef: buildDatahubServer,
     requiresFallback: true,
-  },
-  {
-    id: "data-analyst",
-    name: "Data Analyst (Shaper Dashboard)",
-    description:
-      "DuckDB SQL dashboard creation via Shaper. Receives data exploration results from previous steps and creates visual dashboards. Also useful when the user needs a SQL query written based on real schema — datahub finds the schema, then data-analyst generates the query. Keywords: 대시보드, dashboard, 시각화, 분석, DuckDB, SQL, 차트, 리포트, 쿼리 작성. Always used AFTER datahub in sequential mode.",
-    agentId: "dataAnalystAgent",
-    classifierType: "data-analyst",
-    buildServerDef: () => null,
   },
 ];
 

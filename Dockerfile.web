@@ -1,8 +1,13 @@
-FROM node:22-slim
+FROM node:22-alpine
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
+
+# Next.js rewrites are evaluated at build time,
+# so MASTRA_SERVER_URL must be set during build
+ARG MASTRA_SERVER_URL=http://server:4111
+ENV MASTRA_SERVER_URL=$MASTRA_SERVER_URL
 RUN npm run build
 
 COPY scripts/docker-entrypoint-web.sh /entrypoint.sh
