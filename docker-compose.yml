@@ -9,11 +9,21 @@ services:
       POSTGRES_DB: miai
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U miai"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
 
   server:
     build:
@@ -26,8 +36,10 @@ services:
       - DATABASE_URL=postgresql://miai:password@postgres:5432/miai
       - REDIS_URL=redis://redis:6379
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   web:
     build:
@@ -40,7 +52,10 @@ services:
       - MASTRA_SERVER_URL=http://server:4111
       - DATABASE_URL=postgresql://miai:password@postgres:5432/miai
     depends_on:
-      - server
+      postgres:
+        condition: service_healthy
+      server:
+        condition: service_started
 
 volumes:
   pgdata:
