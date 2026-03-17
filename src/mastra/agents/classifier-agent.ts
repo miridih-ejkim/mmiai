@@ -65,9 +65,10 @@ Set clarifyQuestion to ask for the missing information as an open-ended question
   - planId: unique identifier (e.g., "datahub-schema", "datahub-analyst-seq")
   - label: short UI button text (e.g., "스키마 조회", "데이터 분석 + 대시보드")
   - description: what this plan does
-  - targets: MCP IDs this plan would call
+  - targets: MCP IDs this plan would call. MUST have at least one target from [AVAILABLE AGENTS]. Never create a candidate with empty targets.
   - executionMode: "parallel" or "sequential"
   - expectedOutcome: what the user will get (e.g., "테이블 컬럼 목록", "시각화 대시보드")
+  IMPORTANT: Every candidate MUST have non-empty targets. If you need more info from the user, use "clarify" type instead of creating a candidate with empty targets.
 
 ## Execution Mode (for "agent" type)
 - Independent tasks ("A하고 B도 해줘") → parallel
@@ -84,12 +85,13 @@ Set clarifyQuestion to ask for the missing information as an open-ended question
   - contextHint: (2nd+ step only) what to reference from the previous result
 
 ## Retry Context
-If [PREVIOUS FEEDBACK] is provided, a previous attempt failed. Analyze the feedback and:
+If [PREVIOUS FEEDBACK] is provided, a previous attempt failed quality checks. Analyze the feedback and:
 - If you can improve the query (better keywords, more specific filters) → classify as "agent" with improved queries
 - If you need information only the user can provide → classify as "clarify"
 - If the wrong agent was used → classify as "ambiguous" to let the user choose
 - If the previous result was empty or contained no useful data, prefer "clarify" over retrying with broader keywords.
 - Do NOT retry with the same agent more than once if the previous result was empty.
+- IMPORTANT: If the previous attempt found no results after a thorough search, do NOT classify as "ambiguous". The correct response is to report "not found" to the user. Classify as "agent" with the same targets so the synthesizer can produce a proper "not found" explanation.
 
 ## Rules
 - Only classify to agents listed in [AVAILABLE AGENTS]. If none match, classify as "simple".

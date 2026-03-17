@@ -3,6 +3,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
+import { execSync } from "child_process";
 
 const MCP_DATAHUB_URL = process.env.MCP_DATAHUB_URL;
 const MCP_AUTH_TOKEN = process.env.MCP_AUTH_TOKEN;
@@ -35,9 +36,10 @@ export async function createDatahubFallbackTools(): Promise<{
         : undefined,
     });
   } else {
+    const hasUvx = (() => { try { execSync("which uvx", { stdio: "ignore" }); return true; } catch { return false; } })();
     transport = new StdioClientTransport({
-      command: "uvx",
-      args: ["mcp-server-datahub"],
+      command: hasUvx ? "uvx" : "mcp-server-datahub",
+      args: hasUvx ? ["mcp-server-datahub"] : [],
       env: {
         ...process.env as Record<string, string>,
         DATAHUB_GMS_URL: process.env.DATAHUB_GMS_URL!,

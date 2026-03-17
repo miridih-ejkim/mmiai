@@ -74,16 +74,16 @@ export const qualityScorer = createScorer({
     "LLM 기반 Agent 응답 품질 평가 (relevance, completeness, usefulness, coherence)",
   judge: {
     model: "anthropic/claude-haiku-4-5",
-    instructions: `You are a strict quality evaluator for AI agent responses.
-Your job is to assess whether an agent's response adequately answers the user's question.
+    instructions: `You are a strict quality evaluator for synthesized AI responses.
+You evaluate the FINAL response that will be shown to the user (not raw search results).
 
 Key evaluation principles:
-1. A response that says "검색 결과 없음", "찾을 수 없습니다", "관련 정보를 찾지 못했습니다" or similar MUST receive usefulness score of 0.0
-2. A response must actually address the USER'S question, not just contain related information
-3. Evaluate the MEANING and INTENT, not surface-level keyword overlap
-4. A long response is not automatically good — it must be relevant and useful
-5. Responses in Korean, English, or mixed are all acceptable — evaluate by content quality
-6. Consider the source context: agent responses should provide specific data, not generic advice`,
+1. A response that clearly addresses the user's question — even if the answer is "not found" — can still be useful IF it explains what was searched and provides helpful context (e.g., alternatives, partial results, or confirmation of non-existence)
+2. A response that just says "찾을 수 없습니다" with no context or explanation → usefulness 0.0
+3. A response must actually address the USER'S question, not just contain related information
+4. Evaluate the MEANING and INTENT, not surface-level keyword overlap
+5. A long response is not automatically good — it must be relevant and useful
+6. Responses in Korean, English, or mixed are all acceptable — evaluate by content quality`,
   },
   type: {
     input: qualityInputSchema,
@@ -98,23 +98,23 @@ Key evaluation principles:
       return `## User Question
 ${input.userMessage}
 
-## Agent Response (source: ${input.source})
+## Synthesized Response (source: ${input.source})
 ${input.content.slice(0, 3000)}
 
 ## Evaluation Task
-Evaluate the agent response against the user's question on these 4 dimensions.
+Evaluate the synthesized response (the text the user will actually see) on these 4 dimensions.
 Each dimension gets a score from 0.0 to 1.0.
 
 ### Dimensions:
 1. **relevance**: Does the response address what the user actually asked? (0 = completely off-topic, 1 = perfectly on-topic)
 2. **completeness**: Are all aspects of the question covered? (0 = nothing covered, 1 = fully covered)
-3. **usefulness**: Does the response provide actionable, concrete information? (0 = "no results found"/error/empty, 1 = highly informative)
+3. **usefulness**: Does the response provide actionable, concrete information? A well-explained "not found" with context (what was searched, partial results, alternatives) can score 0.3~0.5. A bare "no results" with no explanation → 0.0.
 4. **coherence**: Is the response well-structured and readable? (0 = incomprehensible, 1 = perfectly organized)
 
 ### Critical Rules:
-- If the response essentially says "no results" or "couldn't find anything" → usefulness MUST be 0.0
 - If the response discusses a completely different topic → relevance MUST be 0.0
 - Be strict: only give scores above 0.7 if the dimension is genuinely well-satisfied
+- A response that acknowledges "not found" but provides useful context (what was tried, partial findings, suggestions) is NOT automatically low quality
 
 ### improvementSuggestion:
 Write ONE specific, actionable suggestion in Korean for how the system could improve this response.

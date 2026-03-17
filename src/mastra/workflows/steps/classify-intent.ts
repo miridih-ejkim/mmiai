@@ -283,9 +283,9 @@ export const classifyIntentStep = createStep({
         const executionMode =
           resumeData.selectedExecutionMode || ("parallel" as const);
 
-        // targets가 없으면 원본 메시지로 재분류
+        // targets가 없으면 선택된 계획의 컨텍스트를 포함하여 재분류 (agent로 강제)
         if (targets.length === 0) {
-          return await classifyMessage({
+          const reclassification = await classifyMessage({
             message: `${originalMessage}\n\n사용자가 선택한 계획: ${resumeData.selectedPlan}`,
             activeMcpIds,
             userId,
@@ -294,6 +294,19 @@ export const classifyIntentStep = createStep({
             previousFeedback: undefined,
             retryHistory: [],
           });
+
+          // 재분류가 다시 ambiguous/clarify면 무한 루프 방지 → simple로 전환
+          if (reclassification.type === "ambiguous" || reclassification.type === "clarify") {
+            return {
+              ...reclassification,
+              type: "simple",
+              targets: [],
+              queries: [],
+              reasoning: `사용자가 "${resumeData.selectedPlan}" 계획을 선택했으나 실행 가능한 Agent가 없어 직접 응답합니다. (${reclassification.reasoning})`,
+            };
+          }
+
+          return reclassification;
         }
 
         const queries = targets.map(t => ({ agentId: t, query: originalMessage }));

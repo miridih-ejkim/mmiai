@@ -384,7 +384,6 @@ export async function initializeMastra(): Promise<{
                   // Mastra evented engine: result may be at different paths
                   const text =
                     result.result?.response ??
-                    result.steps?.["synthesize-response"]?.output?.response ??
                     (typeof result.result === "string"
                       ? result.result
                       : null) ??

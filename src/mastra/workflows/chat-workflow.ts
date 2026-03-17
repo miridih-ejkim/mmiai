@@ -23,12 +23,16 @@ const loopIOSchema = z.object({
 });
 
 /**
- * 내부 루프 Workflow: 분류 → 실행 → 품질 평가
+ * 내부 루프 Workflow: 분류 → 실행 → 합성 → 품질 평가
  *
  * dountil 루프의 본체로 사용됩니다.
  * - classify-intent: 의도 분류 (clarify/ambiguous 시 suspend)
  * - branch: simple → directResponse, agent → agentStep
- * - quality-check: 품질 게이트 (실패 시 source="retry" 반환)
+ * - synthesize-response: Agent raw 결과 → 자연어 답변 합성
+ * - quality-check: 합성된 답변의 품질 게이트 (실패 시 source="retry" 반환)
+ *
+ * Scorer가 raw MCP 결과가 아닌 **합성된 자연어 답변**을 평가하므로,
+ * "테이블을 찾을 수 없었습니다"라는 합당한 답변도 적절히 평가됩니다.
  *
  * quality-check가 "retry"를 반환하면 dountil이 이 workflow를 다시 실행합니다.
  * classify-intent가 state.previousFeedback을 참조하여 개선된 전략을 수립합니다.
@@ -65,6 +69,7 @@ const classifyAndExecuteWorkflow = createWorkflow({
 
     return result;
   })
+  .then(synthesizeResponseStep)
   .then(qualityCheckStep)
   .commit();
 
@@ -77,13 +82,16 @@ const MAX_LOOP_ITERATIONS = 3;
  * Classifier 중심 단일 Suspend 포인트 + dountil 루프 구조:
  *
  * dountil 루프:
- *   classify-intent(suspend 가능) → branch(simple|agent) → quality-check
+ *   classify-intent(suspend 가능) → branch(simple|agent) → synthesize → quality-check
  *   - quality-check 통과: source !== "retry" → 루프 종료
  *   - quality-check 실패: source === "retry" → 루프 재시작
  *   - classify-intent에서 clarify/ambiguous → suspend → 사용자 입력 후 resume
  *
+ * synthesize가 루프 안에 있으므로 Scorer는 raw MCP 결과가 아닌
+ * 합성된 자연어 답변을 평가합니다.
+ *
  * 루프 종료 후:
- *   synthesize-response → 최종 사용자 응답 합성
+ *   .map()으로 { response } 추출 (이미 합성 완료)
  *
  * HITL 타입:
  *   - clarify: 정보 부족 → 어시스턴트 질문 메시지
@@ -107,5 +115,8 @@ export const chatWorkflow = createWorkflow({
       return inputData.source !== "retry";
     },
   )
-  .then(synthesizeResponseStep)
+  .map(async ({ inputData }) => {
+    // 루프 결과에서 합성된 응답 추출
+    return { response: inputData.content || "" };
+  })
   .commit();

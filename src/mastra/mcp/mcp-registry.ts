@@ -1,6 +1,7 @@
 import type { MastraMCPServerDefinition } from "@mastra/mcp";
 import { resolve, dirname } from "path";
 import { existsSync } from "fs";
+import { execSync } from "child_process";
 
 /**
  * MCP 서버 레지스트리 엔트리
@@ -31,6 +32,20 @@ export interface McpServerRegistryEntry {
 const MCP_ATLASSIAN_URL = process.env.MCP_ATLASSIAN_URL;
 const MCP_DATAHUB_URL = process.env.MCP_DATAHUB_URL;
 const MCP_AUTH_TOKEN = process.env.MCP_AUTH_TOKEN;
+
+/** uvx가 있으면 uvx, 없으면 직접 실행 (Docker pip install 환경 대응) */
+const hasUvx = (() => {
+  try {
+    execSync("which uvx", { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+function stdioCommand(pkg: string): { command: string; args: string[] } {
+  return hasUvx ? { command: "uvx", args: [pkg] } : { command: pkg, args: [] };
+}
 
 /**
  * 프로젝트 루트 경로 계산
@@ -68,9 +83,10 @@ export function buildAtlassianServer(): MastraMCPServerDefinition | null {
     };
   }
   if (process.env.CONFLUENCE_URL) {
+    const { command, args } = stdioCommand("mcp-atlassian");
     return {
-      command: "uvx",
-      args: ["mcp-atlassian"],
+      command,
+      args,
       env: {
         CONFLUENCE_URL: process.env.CONFLUENCE_URL,
         CONFLUENCE_USERNAME: process.env.CONFLUENCE_USERNAME || "",
@@ -96,9 +112,10 @@ export function buildDatahubServer(): MastraMCPServerDefinition | null {
     };
   }
   if (process.env.DATAHUB_GMS_URL) {
+    const { command, args } = stdioCommand("mcp-server-datahub");
     return {
-      command: "uvx",
-      args: ["mcp-server-datahub"],
+      command,
+      args,
       env: {
         DATAHUB_GMS_URL: process.env.DATAHUB_GMS_URL,
         DATAHUB_GMS_TOKEN: process.env.DATAHUB_GMS_TOKEN || "",

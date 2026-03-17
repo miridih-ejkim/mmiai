@@ -49,6 +49,24 @@ export const qualityCheckStep = createStep({
       return inputData;
     }
 
+    // === 동일 targets 반복 실패 → 재시도 중단, PASS 처리 ===
+    // 같은 Agent에게 같은 질문을 반복해도 결과가 달라지지 않음.
+    // 1회 재시도 기회를 준 뒤, 같은 targets가 또 실패하면 synthesizer에게 넘겨서
+    // "찾을 수 없습니다"로 정리하는 것이 더 나은 UX.
+    const currentTargets = (currentState.executionTargets ?? []).slice().sort().join(",");
+    if (currentTargets && retryHistory.length > 0) {
+      const sameTargetFailures = retryHistory.filter(
+        (entry) => entry.targets.slice().sort().join(",") === currentTargets,
+      );
+      if (sameTargetFailures.length >= 1) {
+        console.warn(
+          `[quality-check] Same targets "${currentTargets}" already failed ${sameTargetFailures.length} time(s). Passing through to synthesizer.`,
+        );
+        setState({ ...currentState, previousFeedback: undefined });
+        return inputData;
+      }
+    }
+
     // 재시도 이력 항목 생성 헬퍼
     const createRetryEntry = (reason: string): RetryEntry => ({
       attempt: retryCount + 1,
