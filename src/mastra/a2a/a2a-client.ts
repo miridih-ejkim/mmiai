@@ -83,9 +83,15 @@ async function getOrCreateClient(agentId: string, baseUrl?: string): Promise<A2A
     clientCache.set(cacheKey, client);
 
     // agent card fetch 완료 대기 후, 상대 경로를 절대 URL로 패치
+    // Mastra Agent Card는 url을 "/a2a/:agentId"로 반환하지만,
+    // 실제 엔드포인트는 "/api/a2a/:agentId" (/api prefix 필수)
     await client.getAgentCard();
-    const ep = (client as any).serviceEndpointUrl as string | undefined;
+    let ep = (client as any).serviceEndpointUrl as string | undefined;
     if (ep && ep.startsWith("/")) {
+      // /a2a/... → /api/a2a/... 보정 (Mastra Agent Card 누락 대응)
+      if (ep.startsWith("/a2a/") && !ep.startsWith("/api/")) {
+        ep = `/api${ep}`;
+      }
       (client as any).serviceEndpointUrl = `${base}${ep}`;
     }
   }
@@ -143,18 +149,22 @@ function parseA2AResult(
     return { agentId, status: "unknown", response: "(응답 없음)" };
   }
 
+  // JSON-RPC envelope 언래핑: { jsonrpc, id, result: { kind, ... } }
   const obj = result as Record<string, unknown>;
+  const inner = (obj.jsonrpc && obj.result && typeof obj.result === "object")
+    ? obj.result as Record<string, unknown>
+    : obj;
 
-  if (obj.kind === "message") {
-    return parseMessageResponse(agentId, result as Message);
+  if (inner.kind === "message") {
+    return parseMessageResponse(agentId, inner as unknown as Message);
   }
 
-  if (obj.kind === "task") {
-    return parseTaskResponse(agentId, result as Task);
+  if (inner.kind === "task") {
+    return parseTaskResponse(agentId, inner as unknown as Task);
   }
 
-  if (typeof obj === "string") {
-    return { agentId, status: "completed", response: obj as unknown as string };
+  if (typeof inner === "string") {
+    return { agentId, status: "completed", response: inner as unknown as string };
   }
 
   return { agentId, status: "unknown", response: "(응답 없음)" };
