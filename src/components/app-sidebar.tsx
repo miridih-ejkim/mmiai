@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { PlusIcon, MessageSquareIcon, BotIcon, SettingsIcon } from 'lucide-react';
+import { PlusIcon, MessageSquareIcon, BotIcon, SettingsIcon, PresentationIcon } from 'lucide-react';
 
 import {
   Sidebar,
@@ -13,13 +13,18 @@ import {
 import { Button } from '@/components/ui/button';
 import { SidebarHistory } from '@/components/sidebar-history';
 import { AgentList } from '@/components/a2a/agent-list';
+import { PptSidebarHistory } from '@/components/ppt-sidebar-history';
 import { ThemeToggle } from '@/components/theme-toggle';
 
-type Tab = 'chat' | 'a2a';
+type Tab = 'chat' | 'a2a' | 'ppt';
 
 export function AppSidebar({ userId }: { userId: string }) {
   const pathname = usePathname();
-  const activeTab: Tab = pathname.startsWith('/a2a') ? 'a2a' : 'chat';
+  const activeTab: Tab = pathname.startsWith('/a2a')
+    ? 'a2a'
+    : pathname.startsWith('/ppt')
+      ? 'ppt'
+      : 'chat';
 
   return (
     <Sidebar>
@@ -62,12 +67,25 @@ export function AppSidebar({ userId }: { userId: string }) {
             <BotIcon size={12} />
             A2A
           </Link>
+          <Link
+            href="/ppt"
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+              activeTab === 'ppt'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <PresentationIcon size={12} />
+            PPT
+          </Link>
         </div>
       </SidebarHeader>
 
       <SidebarContent>
         {activeTab === 'chat' ? (
           <SidebarHistory userId={userId} />
+        ) : activeTab === 'ppt' ? (
+          <PptSidebarHistory userId={userId} />
         ) : (
           <AgentList />
         )}

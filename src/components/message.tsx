@@ -1,7 +1,7 @@
 'use client';
 
 import { memo } from 'react';
-import { SparklesIcon } from 'lucide-react';
+import { SparklesIcon, PresentationIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Streamdown } from 'streamdown';
 import { code } from '@streamdown/code';
@@ -11,6 +11,12 @@ import { cjk } from '@streamdown/cjk';
 import type { UIMessage } from 'ai';
 import { ClarifyToolUI, PlanSelectToolUI } from '@/components/chat-tools';
 import { MessageActions } from '@/components/message-actions';
+import { useCanvas } from '@/components/canvas';
+
+/** PPT 참조 마커 정규식 (표시용 텍스트에서 제거) */
+const PPT_REF_RE = /\n?<!--MMIAI_PPT_REF:[^>]+-->/;
+/** 이전 base64 마커 (하위 호환) */
+const PPT_LEGACY_RE = /\n?<!--MMIAI_PPT:[\s\S]+?-->/;
 
 /** Tool part에서 tool name 추출 */
 function getToolName(part: any): string {
@@ -92,6 +98,28 @@ export const PreviewMessage = memo(
 
               if (!part.text) return null;
 
+              // PPT 참조 마커 감지 → 마커 제거 + Canvas 열기 버튼
+              const hasPptRef = PPT_REF_RE.test(part.text) || PPT_LEGACY_RE.test(part.text);
+              if (hasPptRef) {
+                const displayText = part.text
+                  .replace(PPT_REF_RE, '')
+                  .replace(PPT_LEGACY_RE, '')
+                  .trim();
+                return (
+                  <div key={i} className="flex flex-col gap-2">
+                    {displayText && (
+                      <Streamdown
+                        className="size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+                        plugins={{ code, mermaid, math, cjk }}
+                      >
+                        {displayText}
+                      </Streamdown>
+                    )}
+                    <PptCanvasButton />
+                  </div>
+                );
+              }
+
               return (
                 <Streamdown
                   key={i}
@@ -149,6 +177,31 @@ export const PreviewMessage = memo(
 );
 
 PreviewMessage.displayName = 'PreviewMessage';
+
+/** PPT Canvas 열기 버튼 — Canvas가 이미 열려있으면 그대로, 아니면 다시 열기 */
+function PptCanvasButton() {
+  const { isOpen, openCanvas, html } = useCanvas();
+
+  const handleClick = () => {
+    if (html) {
+      // Canvas에 이미 HTML이 있으면 그냥 열기
+      openCanvas(html, 'Presentation');
+    }
+    // HTML이 없으면 PptChat의 fetchAndOpenCanvas에 의해 로드됨
+  };
+
+  if (isOpen) return null; // Canvas가 이미 열려있으면 버튼 숨김
+
+  return (
+    <button
+      onClick={handleClick}
+      className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm font-medium text-foreground hover:bg-accent transition-colors w-fit"
+    >
+      <PresentationIcon size={16} />
+      캔버스에서 보기
+    </button>
+  );
+}
 
 export function ThinkingMessage() {
   return (
