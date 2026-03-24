@@ -28,7 +28,10 @@ import {
   saveMessages,
   updateChatTitle,
   updateChatSuspendMeta,
+  getLatestPptOutput,
+  savePptOutput,
 } from "../lib/db/queries";
+import { embedPptHtml } from "../lib/ppt-utils";
 
 import {
   mcpConnectionManager,
@@ -49,6 +52,12 @@ import {
 import { createFinalResponserAgent } from "./agents/final-responser";
 
 import { chatWorkflow } from "./workflows/chat-workflow";
+import { pptWorkflow } from "./workflows/ppt/ppt-workflow";
+import {
+  createSlidePlannerAgent,
+  createHtmlRendererAgent,
+  createSlideCriticAgent,
+} from "./agents/ppt";
 import {
   a2aSupervisor,
   a2aAtlassian,
@@ -96,6 +105,11 @@ export async function initializeMastra(): Promise<{
     },
   });
 
+  // PPT Agents 생성 (Planner → Renderer → Critic 파이프라인)
+  const slidePlannerAgent = createSlidePlannerAgent();
+  const htmlRendererAgent = createHtmlRendererAgent();
+  const slideCriticAgent = createSlideCriticAgent();
+
   // Classifier Agent 생성 (의도 분류 전용, 공유 Memory로 대화 맥락 recall)
   const classifierAgent = createClassifierAgent(conversationMemory);
 
@@ -111,6 +125,10 @@ export async function initializeMastra(): Promise<{
       atlassianAgent,
       googleSearchAgent,
       dataHubAgent,
+      // PPT Workflow용 Agent
+      slidePlannerAgent,
+      htmlRendererAgent,
+      slideCriticAgent,
       // A2A 전용 Agent (자연어 소통 가능, MCP tools baked-in)
       a2aAtlassian,
       a2aGoogleSearch,
@@ -119,6 +137,7 @@ export async function initializeMastra(): Promise<{
     },
     workflows: {
       chatWorkflow,
+      pptWorkflow,
     },
     memory: {
       conversationMemory,
@@ -450,6 +469,209 @@ export async function initializeMastra(): Promise<{
                       "[/chat] DB save assistant msg error:",
                       e,
                     );
+                  }
+                }
+              },
+            });
+
+            return createUIMessageStreamResponse({
+              stream,
+              headers: {
+                "X-Accel-Buffering": "no",
+                "Cache-Control": "no-cache",
+              },
+            });
+          },
+        }),
+        // PPT Chat (AI SDK SSE streaming — pptWorkflow 실행)
+        registerApiRoute("/ppt/chat", {
+          method: "POST",
+          handler: async (c) => {
+            const body = await c.req.json();
+            const userId = body.userId || "default-user";
+            const chatId: string | undefined = body.chatId;
+            const incomingMessages: UIMessage[] = body.messages || [];
+            const userText = extractLastUserMessage(incomingMessages);
+
+            if (!userText.trim()) {
+              return c.json({ error: "message is required" }, 400);
+            }
+
+            // Persist: create PPT chat + save user message
+            if (chatId) {
+              try {
+                const existing = await getChatById(chatId);
+                if (!existing) {
+                  await createChat({
+                    id: chatId,
+                    userId,
+                    title: userText.slice(0, 50) || "New PPT",
+                    type: "ppt",
+                  });
+                }
+                const lastUser = [...incomingMessages]
+                  .reverse()
+                  .find((m) => m.role === "user");
+                if (lastUser) {
+                  await saveMessages([
+                    {
+                      id: lastUser.id,
+                      chatId,
+                      role: lastUser.role,
+                      parts: lastUser.parts,
+                    },
+                  ]);
+                }
+              } catch (e) {
+                console.error("[/ppt/chat] DB save user msg error:", e);
+              }
+            }
+
+            // DB에서 최신 PPT HTML 조회 (편집 모드 감지)
+            const latestOutput = chatId
+              ? await getLatestPptOutput(chatId)
+              : null;
+            const existingHtml = latestOutput?.html ?? null;
+            const currentVersion = latestOutput
+              ? parseInt(latestOutput.version, 10)
+              : 0;
+            const isEditMode = !!existingHtml;
+            console.log(`[/ppt/chat] Mode: ${isEditMode ? "edit" : "generate"}`);
+
+            const stream = createUIMessageStream({
+              originalMessages: incomingMessages,
+              execute: async ({ writer }) => {
+                const progressId = generateId();
+                writer.write({ type: "text-start", id: progressId });
+                writer.write({
+                  type: "text-delta",
+                  id: progressId,
+                  delta: isEditMode
+                    ? "슬라이드를 수정하고 있습니다..."
+                    : "프레젠테이션을 생성하고 있습니다...",
+                });
+                writer.write({ type: "text-end", id: progressId });
+
+                try {
+                  let html: string | null = null;
+
+                  if (isEditMode) {
+                    // === 편집 모드: Renderer Agent에게 기존 HTML + 수정 지시 전달 ===
+                    const rendererAgent = mastra.getAgent("htmlRendererAgent");
+                    const editPrompt = `You are editing an existing HTML presentation. Apply ONLY the requested change. Do NOT alter anything else.
+
+## CRITICAL RULES
+- Preserve ALL existing slides, styles, layouts, colors, fonts, and content
+- Only modify what the user explicitly asks to change
+- Return the COMPLETE HTML file with the modification applied
+- Do NOT add or remove slides unless explicitly asked
+- Do NOT change colors, fonts, or styling unless explicitly asked
+- Keep all JavaScript navigation code intact
+
+## Current HTML
+${existingHtml}
+
+## User's Edit Request
+${userText}
+
+Return ONLY the complete modified HTML. Start with <!DOCTYPE html> and end with </html>.
+Do NOT wrap in markdown code fences.`;
+
+                    const result = await rendererAgent.generate(editPrompt, {
+                      maxSteps: 1,
+                    });
+
+                    let editedHtml = result.text.trim();
+                    // HTML 코드 블록 제거
+                    const htmlMatch = editedHtml.match(/```(?:html)?\s*([\s\S]*?)```/);
+                    if (htmlMatch) editedHtml = htmlMatch[1].trim();
+
+                    if (editedHtml.includes("<!DOCTYPE html") || editedHtml.includes("<html")) {
+                      html = editedHtml;
+                    }
+                  } else {
+                    // === 생성 모드: 전체 PPT Workflow 실행 ===
+                    const workflow = mastra.getWorkflow("pptWorkflow");
+                    const run = await workflow.createRun();
+
+                    const result = await run.start({
+                      inputData: { userRequest: userText },
+                      initialState: { iterationCount: 0 },
+                    });
+
+                    html =
+                      result.status === "success"
+                        ? result.result?.html
+                        : null;
+                  }
+
+                  if (html) {
+                    // PPT 출력물을 별도 테이블에 저장
+                    if (chatId) {
+                      try {
+                        await savePptOutput({
+                          id: generateId(),
+                          chatId,
+                          html,
+                          version: currentVersion + 1,
+                          prompt: userText.slice(0, 200),
+                        });
+                      } catch (e) {
+                        console.error("[/ppt/chat] Failed to save ppt output:", e);
+                      }
+                    }
+
+                    const summary = isEditMode
+                      ? "수정이 완료되었습니다! 캔버스에서 확인하세요."
+                      : "프레젠테이션이 생성되었습니다! 캔버스에서 확인하세요.";
+                    // 메시지에는 요약 텍스트만 + 가벼운 마커 (chatId 참조용)
+                    const messageText = `${summary}\n<!--MMIAI_PPT_REF:${chatId}-->`;
+
+                    const msgId = generateId();
+                    writer.write({ type: "text-start", id: msgId });
+                    writer.write({
+                      type: "text-delta",
+                      id: msgId,
+                      delta: messageText,
+                    });
+                    writer.write({ type: "text-end", id: msgId });
+                  } else {
+                    const msgId = generateId();
+                    writer.write({ type: "text-start", id: msgId });
+                    writer.write({
+                      type: "text-delta",
+                      id: msgId,
+                      delta: isEditMode
+                        ? "수정에 실패했습니다. 다시 시도해주세요."
+                        : "프레젠테이션 생성에 실패했습니다. 다시 시도해주세요.",
+                    });
+                    writer.write({ type: "text-end", id: msgId });
+                  }
+                } catch (err) {
+                  console.error("[/ppt/chat] Error:", err);
+                  const msgId = generateId();
+                  writer.write({ type: "text-start", id: msgId });
+                  writer.write({
+                    type: "text-delta",
+                    id: msgId,
+                    delta: `오류가 발생했습니다: ${err instanceof Error ? err.message : String(err)}`,
+                  });
+                  writer.write({ type: "text-end", id: msgId });
+                }
+              },
+              onFinish: async ({ responseMessage }) => {
+                if (chatId && responseMessage) {
+                  try {
+                    await saveMessages([
+                      {
+                        id: responseMessage.id,
+                        chatId,
+                        role: responseMessage.role,
+                        parts: responseMessage.parts as unknown[],
+                      },
+                    ]);
+                  } catch (e) {
+                    console.error("[/ppt/chat] DB save assistant msg error:", e);
                   }
                 }
               },

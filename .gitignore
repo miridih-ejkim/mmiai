@@ -56,3 +56,4 @@ logs/
 
 src/mastra/public/node_modules
 docker/node_modules
+.omc/

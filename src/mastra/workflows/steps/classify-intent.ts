@@ -299,9 +299,9 @@ export const classifyIntentStep = createStep({
           if (reclassification.type === "ambiguous" || reclassification.type === "clarify") {
             return {
               ...reclassification,
-              type: "simple",
-              targets: [],
-              queries: [],
+              type: "simple" as const,
+              targets: [] as string[],
+              queries: [] as { agentId: string; query: string }[],
               reasoning: `사용자가 "${resumeData.selectedPlan}" 계획을 선택했으나 실행 가능한 Agent가 없어 직접 응답합니다. (${reclassification.reasoning})`,
             };
           }
@@ -482,11 +482,11 @@ IMPORTANT: You may ONLY route to agents listed above. If no agents are available
         // 복구 실패 → simple로 fallback (워크플로우 중단 방지)
         console.error("[classify-intent] Failed to recover from structured output error:", err.message);
         classification = {
-          type: "simple",
-          targets: [],
-          queries: [],
+          type: "simple" as const,
+          targets: [] as string[],
+          queries: [] as { agentId: string; query: string }[],
           reasoning: `분류 실패 (${err.message}). 직접 응답으로 전환합니다.`,
-          executionMode: "parallel",
+          executionMode: "parallel" as const,
         };
       }
     } else {
@@ -494,11 +494,11 @@ IMPORTANT: You may ONLY route to agents listed above. If no agents are available
       // 워크플로우 전체가 실패하는 것보다 simple 응답이 나은 UX
       console.error("[classify-intent] Unexpected error, falling back to simple:", err.message);
       classification = {
-        type: "simple",
-        targets: [],
-        queries: [],
+        type: "simple" as const,
+        targets: [] as string[],
+        queries: [] as { agentId: string; query: string }[],
         reasoning: `분류 중 오류 발생 (${err?.message || "unknown"}). 직접 응답으로 전환합니다.`,
-        executionMode: "parallel",
+        executionMode: "parallel" as const,
       };
     }
   }
@@ -511,9 +511,9 @@ IMPORTANT: You may ONLY route to agents listed above. If no agents are available
     );
     classification = {
       ...classification,
-      type: "clarify",
-      targets: [],
-      queries: [],
+      type: "clarify" as const,
+      targets: [] as string[],
+      queries: [] as { agentId: string; query: string }[],
     };
   }
   // LLM이 candidates를 생성했지만 type을 "ambiguous"로 설정하지 않은 경우 교정
@@ -527,9 +527,9 @@ IMPORTANT: You may ONLY route to agents listed above. If no agents are available
     );
     classification = {
       ...classification,
-      type: "ambiguous",
-      targets: [],
-      queries: [],
+      type: "ambiguous" as const,
+      targets: [] as string[],
+      queries: [] as { agentId: string; query: string }[],
     };
   }
   return validateClassification(classification, activeMcpIds);
