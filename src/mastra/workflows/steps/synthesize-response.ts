@@ -18,11 +18,6 @@ export const synthesizeResponseStep = createStep({
   outputSchema: agentResultSchema,
   stateSchema: workflowStateSchema,
   execute: async ({ inputData, mastra, getInitData, requestContext, state }) => {
-    // direct 응답은 합성 불필요 — 그대로 전달
-    if (inputData.source === "direct") {
-      return inputData;
-    }
-
     const initData = getInitData<{ message: string }>();
     const agent = mastra!.getAgent("finalResponserAgent");
 
@@ -40,13 +35,22 @@ export const synthesizeResponseStep = createStep({
     const clarifyAnswer = state?.clarifyAnswer;
     const userQuestion = initData?.message || state?.originalMessage || "";
 
-    const prompt = `사용자 질문: ${userQuestion}
+    let prompt: string;
+
+    if (source === "direct") {
+      // simple 분기: 외부 검색 없이 대화형 응답 생성
+      prompt = `사용자 메시지: ${userQuestion}
+
+이것은 인사말이나 간단한 대화입니다. 자연스럽고 친근하게 응답하세요.`;
+    } else {
+      prompt = `사용자 질문: ${userQuestion}
 ${clarifyAnswer ? `\n사용자가 추가로 제공한 정보: ${clarifyAnswer}\n` : ""}
 검색 결과 (출처: ${source}):
 ${content}
 
 위 검색 결과를 기반으로 사용자에게 도움이 되는 응답을 작성하세요.
 ${!success ? "\n주의: 일부 검색에서 오류가 발생했습니다. 사용 가능한 정보만으로 응답하되, 오류 사실도 안내하세요." : ""}`;
+    }
 
     const response = await agent.generate(prompt, {
       memory: {
