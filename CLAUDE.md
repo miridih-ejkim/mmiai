@@ -10,6 +10,7 @@ Workflow가 사용자 요청을 구조화된 Step으로 처리하는 **Determini
 **Mastra Agent Server**와 **Next.js UI**가 분리 배포/스케일링 가능한 구조.
 MCP Registry 기반 동적 확장 — Worker Agent/MCP 추가 시 Workflow Step/Branch 수정 불필요.
 A2A (Agent-to-Agent) 프로토콜로 외부 Agent Server와 JSON-RPC 2.0 통신.
+PPT Workflow로 HTML 프레젠테이션 생성 — PaperBanana 아키텍처 기반 Planner → Renderer → Critic 반복 개선.
 
 ## 기술 스택
 
@@ -38,6 +39,7 @@ Next.js (UI Only, port 3000)
   ▼
 Mastra Agent Server (port 4111)
   │  registerApiRoute("/chat")       ← AI SDK SSE streaming + suspend/resume
+  │  registerApiRoute("/ppt/chat")   ← PPT Workflow SSE streaming
   │  registerApiRoute("/mcp/*")
   │  /api/a2a/:agentId               ← A2A JSON-RPC 2.0 (Mastra 자동 등록)
   │  /.well-known/:agentId/agent-card.json  ← A2A Agent Card (자동)
@@ -53,11 +55,22 @@ Mastra Agent Server (port 4111)
   │     │           └── 코드 필터 + qualityScorer(LLM) → PASS/FAIL(retry)
   │     └── synthesize-response (루프 후)
   │
+  ├── PPT Workflow (PaperBanana 아키텍처)
+  │     ├── plan-slides (Planner + Stylist 통합)
+  │     ├── dountil(render-and-refine, max 3회)
+  │     │     ├── render-html (Renderer → HTML 생성/수정)
+  │     │     └── critique-slides (Critic → PASS/FAIL + 피드백)
+  │     └── .map() → 최종 HTML 추출
+  │
+  ├── PPT Agents (Sonnet)
+  │     ├── SlidePlannerAgent  — 슬라이드 명세 설계
+  │     ├── HtmlRendererAgent  — HTML 프레젠테이션 생성
+  │     └── SlideCriticAgent   — 품질 검증 + 피드백
+  │
   ├── Worker Agents (Workflow용, 도구 lazy 주입)
   │     ├── AtlassianAgent → MCP (HTTP)
   │     ├── GoogleSearchAgent → MCP (stdio)
-  │     ├── DataHubAgent → MCP (HTTP)
-  │     └── DataAnalystAgent → MCP (HTTP)
+  │     └── DataHubAgent → MCP (HTTP)
   │
   ├── A2A Agents (자기 완결적, MCP tools baked-in)
   │     ├── a2aAtlassian → MCP (HTTP)
@@ -93,9 +106,15 @@ mmiai/
 │   │   │   │   ├── page.tsx    # A2A Agent 목록
 │   │   │   │   ├── [agentId]/page.tsx  # A2A Agent 채팅
 │   │   │   │   └── settings/page.tsx   # A2A 서버 관리
-│   │   │   └── layout.tsx      # Sidebar 레이아웃
+│   │   │   ├── ppt/            # PPT 프레젠테이션 UI
+│   │   │   │   ├── page.tsx    # 새 PPT 생성
+│   │   │   │   └── [id]/page.tsx  # PPT 채팅 + Canvas
+│   │   │   └── layout.tsx      # Sidebar 레이아웃 (Chat/A2A/PPT 탭)
 │   │   ├── api/                # Next.js API Routes
 │   │   │   ├── chats/          # Chat CRUD (DB)
+│   │   │   ├── ppt/            # PPT API Routes
+│   │   │   │   ├── chats/route.ts     # GET: PPT 채팅 목록
+│   │   │   │   └── output/route.ts    # GET: 최신 PPT HTML 조회
 │   │   │   └── a2a/            # A2A 서버/Agent 관리 API
 │   │   │       ├── agents/route.ts        # GET: Agent 카탈로그
 │   │   │       └── servers/               # CRUD: 외부 서버 관리
@@ -108,19 +127,26 @@ mmiai/
 │   │   │   ├── a2a-testbed.tsx # A2A Testbed
 │   │   │   ├── agent-list.tsx  # Agent 목록 사이드바
 │   │   │   └── server-management.tsx  # 서버 관리 UI
+│   │   ├── canvas/             # PPT Canvas 패널
+│   │   │   ├── canvas-context.tsx  # Canvas 상태 관리 (Context + Provider)
+│   │   │   ├── canvas-panel.tsx    # iframe 기반 HTML 프레젠테이션 뷰어
+│   │   │   └── index.ts           # exports
 │   │   ├── chat.tsx            # Chat 메인 컴포넌트 (useChat + HITL)
+│   │   ├── ppt-chat.tsx        # PPT Chat 컴포넌트 (useChat + Canvas 연동)
 │   │   ├── chat-tools.tsx      # HITL Tool UI (PlanSelectToolUI)
 │   │   ├── message.tsx         # 메시지 렌더링
 │   │   ├── messages.tsx        # 메시지 목록
 │   │   ├── multimodal-input.tsx # 입력 UI
-│   │   ├── app-sidebar.tsx     # 사이드바 (Chat/A2A 탭)
-│   │   └── sidebar-history.tsx # 채팅 이력
+│   │   ├── app-sidebar.tsx     # 사이드바 (Chat/A2A/PPT 탭)
+│   │   ├── sidebar-history.tsx # 채팅 이력
+│   │   └── ppt-sidebar-history.tsx # PPT 채팅 이력
 │   ├── hooks/                  # React hooks
 │   ├── lib/
 │   │   ├── db/                 # Database (drizzle)
 │   │   │   ├── schema.ts       # 테이블 스키마
 │   │   │   ├── queries.ts      # CRUD 쿼리
 │   │   │   └── index.ts        # DB 연결
+│   │   ├── ppt-utils.ts        # PPT HTML 마커 유틸리티 (embed/extract/strip)
 │   │   └── utils.ts            # 유틸리티 함수
 │   └── mastra/                 # Mastra Agent 설정 (Server 전용)
 │       ├── index.ts            # top-level await, mastra export, /chat 핸들러
@@ -152,20 +178,31 @@ mmiai/
 │       ├── workflows/          # Workflow 정의
 │       │   ├── chat-workflow.ts       # 메인 Chat Workflow (dountil + synthesize)
 │       │   ├── state.ts               # 공유 상태 스키마
-│       │   └── steps/                 # Workflow Steps
-│       │       ├── classify-intent.ts # Planner + HITL Step
-│       │       ├── agent-steps.ts     # 통합 Agent Step
-│       │       ├── quality-check.ts   # 2단계 품질 게이트
-│       │       └── synthesize-response.ts  # 최종 응답 합성 Step
+│       │   ├── steps/                 # Chat Workflow Steps
+│       │   │   ├── classify-intent.ts # Planner + HITL Step
+│       │   │   ├── agent-steps.ts     # 통합 Agent Step
+│       │   │   ├── quality-check.ts   # 2단계 품질 게이트
+│       │   │   └── synthesize-response.ts  # 최종 응답 합성 Step
+│       │   └── ppt/                   # PPT Workflow
+│       │       ├── ppt-workflow.ts    # PPT 메인 Workflow (plan → dountil render↔critique)
+│       │       ├── state.ts           # PPT 공유 상태 스키마
+│       │       └── steps/             # PPT Workflow Steps
+│       │           ├── plan-slides.ts     # 슬라이드 명세 생성
+│       │           ├── render-html.ts     # HTML 프레젠테이션 렌더링
+│       │           └── critique-slides.ts # HTML 품질 검증 + 피드백
 │       └── agents/
 │           ├── classifier-agent.ts    # 의도 분류 + 실행 계획 Agent (Sonnet)
 │           ├── final-responser/       # 최종 응답 합성 Agent
+│           ├── ppt/                   # PPT Agents
+│           │   ├── index.ts
+│           │   ├── slide-planner-agent.ts    # 슬라이드 설계 (Sonnet)
+│           │   ├── html-renderer-agent.ts    # HTML 생성 (Sonnet)
+│           │   └── slide-critic-agent.ts     # 품질 검증 (Sonnet)
 │           └── workers/               # Worker Agents
 │               ├── index.ts
 │               ├── atlassian-agent.ts
 │               ├── google-search-agent.ts
-│               ├── datahub-agent.ts
-│               └── data-analyst-agent.ts
+│               └── datahub-agent.ts
 ├── docs/
 │   ├── workflow-hitl-architecture.drawio  # 아키텍처 다이어그램
 │   └── workflow-migration-analysis.md     # Workflow 전환 분석 문서
@@ -314,6 +351,115 @@ Classifier가 생성하는 query는 **완전한 문장**이어야 함. Worker Ag
 - GOOD: `"Confluence에서 fluss 관련 문서를 검색해줘"`, `"users 테이블의 스키마 정보를 조회해줘"`
 
 Worker Agent는 planner로부터 전처리된 query를 받으므로 clarification을 요청하지 않고 항상 도구를 실행해야 함.
+
+## PPT Workflow 아키텍처
+
+### 개요
+
+PaperBanana 아키텍처를 HTML 프레젠테이션에 적용한 생성/편집 파이프라인.
+Chat과 별도의 독립 Workflow로, `/ppt/chat` 엔드포인트에서 실행된다.
+
+### 전체 흐름
+
+```
+User Request ("AI 트렌드 발표 자료 만들어줘")
+     │
+     ▼
+┌──────────────────┐
+│  plan-slides     │  ← Slide Planner Agent (Sonnet)
+│  슬라이드 명세   │     JSON: theme, slides[{layoutType, content, designNotes}]
+└────────┬─────────┘
+         │
+         ▼
+╔══════════════════════════════════════════╗
+║  dountil Loop (render-and-refine)        ║
+║  max 3 iterations                        ║
+║                                          ║
+║  ┌──────────────────┐                    ║
+║  │  render-html     │  ← HTML Renderer Agent (Sonnet)     ║
+║  │  명세 → HTML     │     self-contained single HTML file  ║
+║  └────────┬─────────┘                    ║
+║           │                              ║
+║  ┌────────┴─────────┐                    ║
+║  │  critique-slides │  ← Slide Critic Agent (Sonnet)      ║
+║  │  HTML 품질 검증  │     overallScore >= 0.7 → PASS       ║
+║  └───┬─────────┬────┘                    ║
+║      │         │                         ║
+║   PASS      FAIL                         ║
+║  (exit)   revisedInstructions            ║
+║      │         └──→ render-html (수정)   ║
+╚══════╪═══════════════════════════════════╝
+       │
+       ▼
+  .map() → { html }
+       │
+       ▼
+  Canvas Panel (iframe)
+```
+
+### Workflow 구조 (코드)
+
+```typescript
+// 내부 루프: render → critique
+const renderAndRefineWorkflow = createWorkflow(...)
+  .then(renderHtmlStep)          // 명세 → HTML
+  .then(critiqueSlidesStep)      // HTML 검증
+  .commit();
+
+// 메인 Workflow: plan → dountil(render↔critique) → extract
+export const pptWorkflow = createWorkflow(...)
+  .then(planSlidesStep)                                    // 명세 생성
+  .dountil(renderAndRefineWorkflow, exitCondition)         // max 3
+  .map(({ inputData }) => ({ html: inputData.html }))      // HTML 추출
+  .commit();
+```
+
+### PPT Agents
+
+| Agent | ID | 모델 | 역할 |
+|-------|-----|------|------|
+| `slidePlannerAgent` | slide-planner-agent | Sonnet | 사용자 요청 → JSON 슬라이드 명세 (theme, layouts, content) |
+| `htmlRendererAgent` | html-renderer-agent | Sonnet | 슬라이드 명세 → self-contained HTML (CSS/JS inline) |
+| `slideCriticAgent` | slide-critic-agent | Sonnet | HTML 품질 검증 → PASS/FAIL + revisedInstructions |
+
+### PPT Workflow 공유 상태
+
+`src/mastra/workflows/ppt/state.ts`에 정의된 `pptWorkflowStateSchema`:
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `userRequest` | `string?` | 원본 사용자 요청 |
+| `slideSpec` | `string?` | Planner가 생성한 슬라이드 명세 (JSON) |
+| `currentHtml` | `string?` | 현재 HTML 코드 |
+| `criticFeedback` | `string?` | Critic의 최신 수정 지시사항 |
+| `criticScore` | `number?` | Critic의 최신 점수 (0.0-1.0) |
+| `iterationCount` | `number` | 현재 반복 횟수 (0-based) |
+
+### 생성 vs 편집 모드
+
+`/ppt/chat` 핸들러가 DB에서 기존 HTML 존재 여부로 모드를 결정:
+
+| 모드 | 조건 | 처리 |
+|------|------|------|
+| **생성** | `ppt_outputs`에 해당 chatId의 HTML 없음 | 전체 PPT Workflow 실행 (plan → render → critique) |
+| **편집** | `ppt_outputs`에 기존 HTML 존재 | Renderer Agent 직접 호출 (기존 HTML + 수정 지시) |
+
+편집 모드에서는 Workflow를 거치지 않고 `htmlRendererAgent.generate()`를 직접 호출하여 빠르게 수정.
+
+### Canvas 패널 (UI)
+
+- `CanvasProvider` (React Context): `openCanvas(html, title)` / `closeCanvas()` 상태 관리
+- `CanvasPanel`: iframe 기반 HTML 프레젠테이션 뷰어
+  - postMessage 브릿지로 슬라이드 네비게이션 (prev/next)
+  - 새 창 열기, PDF 다운로드(인쇄) 지원
+  - 슬라이드 카운터 표시 (e.g., "3 / 12")
+- `PptChat`: 생성 완료 시 DB에서 HTML fetch → `openCanvas()` 자동 호출
+
+### PPT 출력물 저장
+
+HTML은 메시지에 직접 저장하지 않고 `ppt_outputs` 테이블에 별도 저장.
+메시지에는 `<!--MMIAI_PPT_REF:{chatId}-->` 마커만 포함하여 참조.
+편집할 때마다 새 버전이 추가되며, `GET /api/ppt/output?chatId=xxx`로 최신 버전 조회.
 
 ## Mastra Scorer
 
@@ -594,7 +740,8 @@ Supervisor Agent
 
 | 경로 | 메서드 | 설명 |
 |------|--------|------|
-| `/chat` | POST | Workflow 실행 (AI SDK SSE streaming, suspend/resume, `consumeStream()` 비동기) |
+| `/chat` | POST | Chat Workflow 실행 (AI SDK SSE streaming, suspend/resume, `consumeStream()` 비동기) |
+| `/ppt/chat` | POST | PPT Workflow 실행 (AI SDK SSE streaming, 생성/편집 모드 자동 감지) |
 | `/mcp/registry` | GET | 전체 MCP 목록 |
 | `/mcp/activations` | GET/POST | 사용자별 MCP 활성화 상태 조회/토글 |
 | `/a2a/:agentId` | POST | A2A JSON-RPC 2.0 (Mastra 자동 등록) |
@@ -609,18 +756,21 @@ src/mastra/index.ts (top-level await)
   └── initializeMastra()
         ├── Worker Agents (도구 없이 생성)
         │     createAtlassianAgent(), createGoogleSearchAgent(),
-        │     createDataHubAgent(), createDataAnalystAgent()
+        │     createDataHubAgent()
         ├── 공유 Memory 생성 (conversationMemory)
         ├── createClassifierAgent(memory)     # Planner Agent
         ├── createFinalResponserAgent(memory)  # 응답 합성 Agent
+        ├── PPT Agents (도구 없이 생성)
+        │     createSlidePlannerAgent(), createHtmlRendererAgent(),
+        │     createSlideCriticAgent()
         ├── A2A Agents (direct import, 자기 완결적)
         │     a2aAtlassian, a2aGoogleSearch,
         │     a2aDataHub, a2aSupervisor
         └── new Mastra({
-              agents: { workflow용 + A2A용 },
-              workflows: { chatWorkflow },
+              agents: { workflow용 + PPT용 + A2A용 },
+              workflows: { chatWorkflow, pptWorkflow },
               storage: PostgresStore,
-              server: { apiRoutes: ["/chat", "/mcp/*"] }
+              server: { apiRoutes: ["/chat", "/ppt/chat", "/mcp/*"] }
             })
 ```
 
@@ -725,7 +875,21 @@ POST /api/a2a/servers
 | `id` | `text PK` | Chat ID |
 | `user_id` | `text NOT NULL` | 사용자 ID |
 | `title` | `text NOT NULL DEFAULT 'New Chat'` | 채팅 제목 |
+| `type` | `text NOT NULL DEFAULT 'chat'` | 채팅 유형 (`'chat'` \| `'ppt'`) |
 | `suspend_meta` | `json` | HITL suspend 메타데이터 (clarify resume용, 완료 시 null) |
+| `created_at` | `timestamp NOT NULL DEFAULT now()` | 생성일 |
+
+### ppt_outputs 테이블
+
+Thread(chat) 단위로 생성/편집된 HTML 프레젠테이션을 저장. 편집마다 새 버전 추가.
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| `id` | `text PK` | Output ID |
+| `chat_id` | `text FK → chats.id CASCADE` | PPT 스레드 ID |
+| `html` | `text NOT NULL` | 생성된 HTML 프레젠테이션 전체 |
+| `version` | `text NOT NULL DEFAULT '1'` | 버전 번호 (1부터, 편집마다 증가) |
+| `prompt` | `text` | 이 버전을 만든 사용자 요청 요약 |
 | `created_at` | `timestamp NOT NULL DEFAULT now()` | 생성일 |
 
 ## 주요 비즈니스 규칙
