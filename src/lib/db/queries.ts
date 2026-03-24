@@ -1,6 +1,6 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from ".";
-import { chats, messages } from "./schema";
+import { chats, messages, pptOutputs } from "./schema";
 
 // ── Chats ──
 
@@ -8,7 +8,15 @@ export async function getChatsByUserId(userId: string) {
   return db
     .select()
     .from(chats)
-    .where(eq(chats.userId, userId))
+    .where(and(eq(chats.userId, userId), eq(chats.type, "chat")))
+    .orderBy(desc(chats.createdAt));
+}
+
+export async function getPptChatsByUserId(userId: string) {
+  return db
+    .select()
+    .from(chats)
+    .where(and(eq(chats.userId, userId), eq(chats.type, "ppt")))
     .orderBy(desc(chats.createdAt));
 }
 
@@ -25,14 +33,16 @@ export async function createChat({
   id,
   userId,
   title,
+  type = "chat",
 }: {
   id: string;
   userId: string;
   title?: string;
+  type?: "chat" | "ppt";
 }) {
   const [chat] = await db
     .insert(chats)
-    .values({ id, userId, title: title ?? "New Chat" })
+    .values({ id, userId, title: title ?? "New Chat", type })
     .returning();
   return chat;
 }
@@ -84,4 +94,58 @@ export async function saveMessages(
       })),
     )
     .onConflictDoNothing();
+}
+
+// ── PPT Outputs ──
+
+/** 특정 스레드의 최신 PPT 출력물 조회 */
+export async function getLatestPptOutput(chatId: string) {
+  const [output] = await db
+    .select()
+    .from(pptOutputs)
+    .where(eq(pptOutputs.chatId, chatId))
+    .orderBy(desc(pptOutputs.createdAt))
+    .limit(1);
+  return output ?? null;
+}
+
+/** PPT 출력물 저장 (새 버전 추가) */
+export async function savePptOutput({
+  id,
+  chatId,
+  html,
+  version,
+  prompt,
+}: {
+  id: string;
+  chatId: string;
+  html: string;
+  version: number;
+  prompt?: string;
+}) {
+  const [output] = await db
+    .insert(pptOutputs)
+    .values({
+      id,
+      chatId,
+      html,
+      version: String(version),
+      prompt,
+    })
+    .returning();
+  return output;
+}
+
+/** 특정 스레드의 PPT 버전 이력 조회 */
+export async function getPptOutputHistory(chatId: string) {
+  return db
+    .select({
+      id: pptOutputs.id,
+      version: pptOutputs.version,
+      prompt: pptOutputs.prompt,
+      createdAt: pptOutputs.createdAt,
+    })
+    .from(pptOutputs)
+    .where(eq(pptOutputs.chatId, chatId))
+    .orderBy(desc(pptOutputs.createdAt));
 }
