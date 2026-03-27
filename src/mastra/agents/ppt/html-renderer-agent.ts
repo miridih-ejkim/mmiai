@@ -97,13 +97,17 @@ Then use ONLY these variables throughout the HTML:
 
 ## CRITICAL: Layout Precision Rules
 
-### Section Splits — ALWAYS use explicit CSS Grid fr units
+### Section Splits — Grid fr units + default equal sizing
 When splitting a slide into two or more sections, you MUST control proportions precisely:
 
 \`\`\`css
-/* GOOD: explicit ratio — predictable, proportional */
-.two-col { display: grid; grid-template-columns: 3fr 2fr; gap: 3rem; }  /* 60:40 */
-.sidebar  { display: grid; grid-template-columns: 1fr 2.5fr; }          /* 30:70 */
+/* DEFAULT: equal sections — use when designNotes has no ratio instruction */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; }
+.three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2rem; }
+
+/* ONLY when designNotes explicitly requests unequal split: */
+.text-visual { display: grid; grid-template-columns: 3fr 2fr; gap: 3rem; }  /* 60:40 */
+.sidebar     { display: grid; grid-template-columns: 1fr 2.5fr; }           /* 30:70 */
 
 /* BAD: vague widths — content pushes boundaries unpredictably */
 .two-col > .left { width: 60%; }
@@ -111,11 +115,12 @@ When splitting a slide into two or more sections, you MUST control proportions p
 \`\`\`
 
 Rules:
+- **DEFAULT IS EQUAL**: If the slide spec's designNotes does NOT specify a ratio, ALL sections MUST be equal (\`1fr 1fr\` or \`1fr 1fr 1fr\`)
+- Unequal splits (3fr 2fr, etc.) are ONLY allowed when designNotes explicitly describes a size difference with intent (e.g., "left text area larger than right icon")
 - NEVER use percentage widths for section splits. Use \`grid-template-columns\` with \`fr\` units
 - ALWAYS add \`gap\` between sections (min 2rem) — never let sections touch
 - Inner content MUST fit within its section. Use \`overflow: hidden\` or size constraints if needed
 - For text-vs-visual splits, the visual area should use \`aspect-ratio\` or fixed proportions to prevent collapse
-- Verify: if you removed all text, would the visual section still maintain its shape?
 
 ### Connector & Flow Lines — MUST visually attach to nodes
 When drawing connections between elements (arrows, lines, progress bars):
@@ -217,6 +222,25 @@ All slides exist in the DOM but only one is visible at a time. You MUST include 
 \`\`\`
 
 The \`:not(.active)\` rule with \`!important\` ensures that no other CSS class (e.g., \`.two-column { display: grid }\`) can accidentally make a hidden slide visible. Without this, layout classes that set \`display\` will override \`display: none\` and cause multiple slides to stack on screen.
+
+## CRITICAL: Whitespace & Content Density
+
+### Slide Padding — viewport-relative for consistent whitespace
+\`\`\`css
+.slide {
+  padding: max(60px, 8vh) max(60px, 6vw);
+}
+\`\`\`
+This ensures at least 30% whitespace at any viewport size: small (Canvas iframe), fullscreen, or projector.
+NEVER use fixed padding like \`padding: 80px\` — it breaks on small viewports and wastes space on large ones.
+
+### Content Density Limits
+- **Grid cards**: max 4 per row. 5+ items → use 2 rows
+- **Bullet points**: max 5 per slide. More → split into 2 slides
+- **Text blocks**: max 5 lines per block. Longer → summarize or split
+- **Data points**: max 6 items in a chart or table
+
+If the slide specification has more content than these limits, PRIORITIZE and CUT — a clean slide with 4 strong points beats a crowded slide with 8.
 
 ## CRITICAL: Slide Internal Layout
 Each slide uses \`display: flex; flex-direction: column;\` — content flows top to bottom. ALWAYS use this natural flow:
