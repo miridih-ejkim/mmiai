@@ -19,6 +19,8 @@ export const pptWorkflowStateSchema = z.object({
   criticScore: z.number().optional(),
   /** 현재 반복 횟수 (0-based) */
   iterationCount: z.number().default(0),
+  /** 검색된 참조 HTML 예시 (Renderer 프롬프트 주입용) */
+  referenceHtmls: z.array(z.string()).optional(),
 });
 
 export type PptWorkflowState = z.infer<typeof pptWorkflowStateSchema>;

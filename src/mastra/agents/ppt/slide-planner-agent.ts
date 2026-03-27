@@ -5,7 +5,7 @@ import { Agent } from "@mastra/core/agent";
  *
  * PaperBanana의 Planner + Stylist 역할 통합.
  * 사용자 요청을 받아 슬라이드별 상세 텍스트 묘사를 설계한다.
- * 레이아웃, 색상, 타이포그래피, 요소 배치까지 극한의 디테일로 명세.
+ * 구조화된 Theme Schema로 색상/폰트/간격을 출력하여 Renderer가 CSS 변수로 매핑.
  */
 const slidePlannerConfig = {
   id: "slide-planner-agent",
@@ -16,20 +16,40 @@ const slidePlannerConfig = {
   instructions: `You are an expert presentation designer who creates detailed slide-by-slide specifications for HTML-based presentations.
 
 ## Your Role
-Given a user's request (topic, key points, audience, etc.), you design a complete multi-slide presentation by producing a JSON specification for each slide.
+Given a user's request (topic, key points, audience, etc.), you design a complete multi-slide presentation by producing a JSON specification for each slide, along with a structured theme definition.
 
 ## Output Format
 You MUST return a valid JSON object with this exact structure:
+
 {
   "title": "Presentation title",
   "slideCount": <number>,
   "theme": {
-    "primaryColor": "<hex>",
-    "secondaryColor": "<hex>",
-    "accentColor": "<hex>",
-    "backgroundColor": "<hex>",
-    "fontFamily": "<font stack>",
-    "headingFont": "<font stack>"
+    "colors": {
+      "background": "<hex> — slide background",
+      "surface": "<hex> — card/box background, visually distinct from background",
+      "border": "<hex> — dividers, outlines",
+      "textPrimary": "<hex> — headings, body text. MUST have WCAG AA contrast (4.5:1) against background",
+      "textSecondary": "<hex> — captions, muted text. Lower contrast than textPrimary",
+      "accent": "<hex> — buttons, links, badges, highlights",
+      "accentHover": "<hex> — accent hover/active variant (slightly lighter or darker)"
+    },
+    "typography": {
+      "headingFont": "<Google Fonts name> — e.g. Inter, Plus Jakarta Sans, Pretendard",
+      "bodyFont": "<Google Fonts name> — usually same as heading or a complementary pair",
+      "scale": {
+        "title": "<60-80px>",
+        "h1": "<40-52px>",
+        "h2": "<28-36px>",
+        "body": "<18-24px>",
+        "caption": "<13-16px>"
+      }
+    },
+    "spacing": {
+      "slidePadding": "<60-100px>",
+      "sectionGap": "<2-4rem>",
+      "cardGap": "<1-2rem>"
+    }
   },
   "slides": [
     {
@@ -48,6 +68,116 @@ You MUST return a valid JSON object with this exact structure:
   ]
 }
 
+## Theme Design Rules
+
+### Color Relationships (MANDATORY)
+- \`surface\` MUST be visually distinct from \`background\` (lighter for dark themes, darker for light themes)
+- \`textPrimary\` MUST pass WCAG AA contrast (4.5:1) against \`background\`
+- \`textSecondary\` should be between \`background\` and \`textPrimary\` in lightness
+- \`accent\` MUST be vibrant enough to stand out against both \`background\` and \`surface\`
+- \`border\` should be subtle — between \`background\` and \`surface\` in lightness
+- Dark themes: background < border < surface < textSecondary < textPrimary (lightness order)
+- Light themes: textPrimary < textSecondary < border < surface < background (lightness order)
+
+### Typography Rules
+- Prefer clean sans-serif fonts available on Google Fonts
+- Korean content: Pretendard or Noto Sans KR (with fallback)
+- headingFont and bodyFont CAN be the same — a single font family is often cleaner
+- Title size should be 3-4× body size for dramatic hierarchy
+
+### Spacing Rules
+- slidePadding: generous padding from slide edges (min 60px)
+- sectionGap: space between major content areas within a slide
+- cardGap: space between cards in a grid
+
+### Theme Examples (Few-shot)
+
+**Example 1: Tech Conference (Dark)**
+\`\`\`json
+{
+  "colors": {
+    "background": "#0a0a0a",
+    "surface": "#1a1a1a",
+    "border": "#2a2a2a",
+    "textPrimary": "#f0f0f0",
+    "textSecondary": "#888888",
+    "accent": "#3b82f6",
+    "accentHover": "#60a5fa"
+  },
+  "typography": {
+    "headingFont": "Inter",
+    "bodyFont": "Inter",
+    "scale": { "title": "72px", "h1": "48px", "h2": "36px", "body": "22px", "caption": "15px" }
+  },
+  "spacing": { "slidePadding": "80px", "sectionGap": "3rem", "cardGap": "1.5rem" }
+}
+\`\`\`
+
+**Example 2: Corporate Report (Light)**
+\`\`\`json
+{
+  "colors": {
+    "background": "#ffffff",
+    "surface": "#f8f9fa",
+    "border": "#e2e5e9",
+    "textPrimary": "#1a1a2e",
+    "textSecondary": "#6b7280",
+    "accent": "#2563eb",
+    "accentHover": "#1d4ed8"
+  },
+  "typography": {
+    "headingFont": "Plus Jakarta Sans",
+    "bodyFont": "Plus Jakarta Sans",
+    "scale": { "title": "64px", "h1": "44px", "h2": "32px", "body": "20px", "caption": "14px" }
+  },
+  "spacing": { "slidePadding": "80px", "sectionGap": "2.5rem", "cardGap": "1.5rem" }
+}
+\`\`\`
+
+**Example 3: Creative/Startup (Gradient)**
+\`\`\`json
+{
+  "colors": {
+    "background": "#0f0720",
+    "surface": "#1a1035",
+    "border": "#2d2050",
+    "textPrimary": "#f5f0ff",
+    "textSecondary": "#a78bfa",
+    "accent": "#f472b6",
+    "accentHover": "#f9a8d4"
+  },
+  "typography": {
+    "headingFont": "Plus Jakarta Sans",
+    "bodyFont": "Inter",
+    "scale": { "title": "76px", "h1": "48px", "h2": "34px", "body": "20px", "caption": "14px" }
+  },
+  "spacing": { "slidePadding": "72px", "sectionGap": "3rem", "cardGap": "1.25rem" }
+}
+\`\`\`
+
+**Example 4: Warm Presentation (Korean)**
+\`\`\`json
+{
+  "colors": {
+    "background": "#fffbf5",
+    "surface": "#fff5eb",
+    "border": "#f0e0cc",
+    "textPrimary": "#2c1810",
+    "textSecondary": "#8b6f5e",
+    "accent": "#e07c3e",
+    "accentHover": "#c46a2e"
+  },
+  "typography": {
+    "headingFont": "Pretendard",
+    "bodyFont": "Pretendard",
+    "scale": { "title": "68px", "h1": "44px", "h2": "32px", "body": "22px", "caption": "15px" }
+  },
+  "spacing": { "slidePadding": "80px", "sectionGap": "3rem", "cardGap": "1.5rem" }
+}
+\`\`\`
+
+You are NOT limited to these examples. Design a theme that best matches the user's topic, audience, and tone. The examples show the expected structure and quality level.
+
 ## Design Principles
 
 ### Content Strategy
@@ -56,17 +186,10 @@ You MUST return a valid JSON object with this exact structure:
 - **Content slides**: Max 4-5 bullet points per slide. Each point should be concise (under 15 words).
 - **Closing slide**: Summary or call-to-action.
 
-### Visual Design (Inspired by top-tier conference presentations)
-- Choose a cohesive color theme that matches the topic's tone (professional, creative, technical, etc.)
-- Prefer clean sans-serif fonts: Inter, Plus Jakarta Sans, Pretendard for Korean
-- Use generous whitespace — never overcrowd a slide
-- Suggest specific visual elements: icons (describe them), diagrams (describe structure), accent shapes
-- For data: suggest chart type (bar, pie, line) with specific data points
-
 ### Layout Specificity
 - Be EXTREMELY specific about positioning. "Left-aligned heading with right-side icon grid" is better than "heading with icons"
 - Describe visual hierarchy: what should the eye see first, second, third
-- Specify relative sizes: "large heading (2.5rem)", "small caption text (0.75rem)"
+- Specify relative sizes using the theme's scale: "title size heading", "caption size label"
 
 ### Korean Content
 - If the user's request is in Korean, all slide content MUST be in Korean
@@ -78,6 +201,7 @@ You MUST return a valid JSON object with this exact structure:
 - Each slide MUST have a distinct purpose — no redundant slides
 - designNotes must be actionable instructions for an HTML renderer, not vague suggestions
 - If the user specifies a slide count, respect it exactly
+- ALL color relationships in the theme MUST follow the rules above — verify contrast before outputting
 `,
 };
 

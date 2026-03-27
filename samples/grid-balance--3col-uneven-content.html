@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>body { font-family: 'Inter', sans-serif; margin: 0; }</style>
+</head>
+<body class="bg-gray-50 min-h-screen flex items-center justify-center p-8">
+  <!--
+    technique: grid-balance
+    variant: 3col-uneven-content
+    핵심 기법:
+    - grid + h-full로 콘텐츠 양이 달라도 카드 높이 통일
+    - flex flex-col + flex-1로 내부 영역 자동 분배
+    - 헤더(아이콘+제목) 고정, 본문 flex-1로 가변, 하단 태그 mt-auto로 바닥 고정
+  -->
+  <section class="w-full max-w-5xl mx-auto py-16">
+    <h2 class="text-3xl font-bold text-gray-900 text-center mb-3">서비스 라인업</h2>
+    <p class="text-gray-500 text-center mb-12">각 서비스별 핵심 기능과 특징</p>
+
+    <div class="grid grid-cols-3 gap-6">
+      <!-- 카드 1: 콘텐츠 많음 -->
+      <div class="bg-white rounded-2xl border border-gray-200 p-7 flex flex-col h-full">
+        <!-- 헤더: 고정 높이 영역 -->
+        <div class="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center mb-4">
+          <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        </div>
+        <h3 class="text-lg font-bold text-gray-900 mb-2">데이터 분석 플랫폼</h3>
+        <!-- 본문: flex-1로 남은 공간 자동 채움 -->
+        <p class="text-sm text-gray-500 leading-relaxed flex-1">
+          실시간 스트리밍 데이터를 수집하고, 자동화된 파이프라인을 통해 정제·변환합니다.
+          사전 구축된 대시보드 템플릿과 커스텀 쿼리 빌더를 제공하며, Slack·이메일 알림 연동으로
+          이상 탐지 시 즉각적인 대응이 가능합니다. 팀별 접근 권한 설정과 데이터 거버넌스 기능을
+          기본 내장하고 있습니다.
+        </p>
+        <!-- 하단: mt-auto로 바닥 고정 -->
+        <div class="flex flex-wrap gap-2 mt-5">
+          <span class="text-xs bg-blue-50 text-blue-600 px-2.5 py-1 rounded-md font-medium">실시간</span>
+          <span class="text-xs bg-blue-50 text-blue-600 px-2.5 py-1 rounded-md font-medium">대시보드</span>
+          <span class="text-xs bg-blue-50 text-blue-600 px-2.5 py-1 rounded-md font-medium">알림</span>
+        </div>
+      </div>
+
+      <!-- 카드 2: 콘텐츠 적음 — 그래도 높이 동일 -->
+      <div class="bg-white rounded-2xl border border-gray-200 p-7 flex flex-col h-full">
+        <div class="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center mb-4">
+          <svg class="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+        </div>
+        <h3 class="text-lg font-bold text-gray-900 mb-2">보안 모니터링</h3>
+        <p class="text-sm text-gray-500 leading-relaxed flex-1">
+          24/7 위협 탐지와 자동 대응 체계를 제공합니다.
+        </p>
+        <div class="flex flex-wrap gap-2 mt-5">
+          <span class="text-xs bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-md font-medium">보안</span>
+          <span class="text-xs bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-md font-medium">24/7</span>
+        </div>
+      </div>
+
+      <!-- 카드 3: 콘텐츠 중간 -->
+      <div class="bg-white rounded-2xl border border-gray-200 p-7 flex flex-col h-full">
+        <div class="w-12 h-12 rounded-xl bg-violet-100 flex items-center justify-center mb-4">
+          <svg class="w-6 h-6 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        </div>
+        <h3 class="text-lg font-bold text-gray-900 mb-2">자동화 엔진</h3>
+        <p class="text-sm text-gray-500 leading-relaxed flex-1">
+          반복 업무를 워크플로우로 정의하고 자동 실행합니다. 노코드 빌더로 누구나 쉽게 구축할 수 있으며,
+          기존 SaaS 도구와 200+ 연동을 지원합니다.
+        </p>
+        <div class="flex flex-wrap gap-2 mt-5">
+          <span class="text-xs bg-violet-50 text-violet-600 px-2.5 py-1 rounded-md font-medium">노코드</span>
+          <span class="text-xs bg-violet-50 text-violet-600 px-2.5 py-1 rounded-md font-medium">200+ 연동</span>
+          <span class="text-xs bg-violet-50 text-violet-600 px-2.5 py-1 rounded-md font-medium">워크플로우</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

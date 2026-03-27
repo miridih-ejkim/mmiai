@@ -3,6 +3,7 @@ import { z } from "zod";
 import { planSlidesStep } from "./steps/plan-slides";
 import { renderHtmlStep, renderLoopIOSchema } from "./steps/render-html";
 import { critiqueSlidesStep } from "./steps/critique-slides";
+import { retrieveReferencesStep } from "./steps/retrieve-references";
 import { pptWorkflowStateSchema } from "./state";
 
 /** 최대 Renderer-Critic 반복 횟수 (PaperBanana: T=3) */
@@ -51,6 +52,7 @@ export const pptWorkflow = createWorkflow({
   stateSchema: pptWorkflowStateSchema,
 })
   .then(planSlidesStep)
+  .then(retrieveReferencesStep)
   .dountil(
     renderAndRefineWorkflow,
     async ({ inputData, iterationCount }) => {

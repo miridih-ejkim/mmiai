@@ -18,6 +18,7 @@ export const renderLoopIOSchema = z.object({
   criticFeedback: z.string().optional(),
   criticScore: z.number().optional(),
   iterationCount: z.number().optional(),
+  referenceHtmls: z.array(z.string()).optional(),
 });
 
 /**
@@ -51,6 +52,62 @@ export const renderHtmlStep = createStep({
       inputData.criticFeedback || state?.criticFeedback;
     const currentHtml =
       inputData.html || state?.currentHtml;
+    const referenceHtmls =
+      inputData.referenceHtmls || state?.referenceHtmls || [];
+
+    // 참조 HTML 예시 섹션 구성 — technique 메타 주석을 파싱하여 슬라이드별 매핑 생성
+    let referenceSection = "";
+    if (referenceHtmls.length > 0) {
+      const annotated = referenceHtmls.map((raw, i) => {
+        // <!-- TECHNIQUE: xxx | VARIANT: yyy | APPLIES TO: zzz --> 파싱
+        const metaMatch = raw.match(
+          /^<!--\s*(TECHNIQUE:\s*[^|]+(?:\|[^>]+)?)\s*-->\n?/,
+        );
+        let technique = "";
+        let variant = "";
+        let appliesTo = "";
+        if (metaMatch) {
+          const parts = metaMatch[1].split("|").map((s) => s.trim());
+          for (const part of parts) {
+            if (part.startsWith("TECHNIQUE:"))
+              technique = part.replace("TECHNIQUE:", "").trim();
+            else if (part.startsWith("VARIANT:"))
+              variant = part.replace("VARIANT:", "").trim();
+            else if (part.startsWith("APPLIES TO:"))
+              appliesTo = part.replace("APPLIES TO:", "").trim();
+          }
+        }
+        const html = metaMatch ? raw.slice(metaMatch[0].length) : raw;
+
+        const header = [
+          technique && `**Technique**: ${technique}`,
+          variant && `**Variant**: ${variant}`,
+          appliesTo &&
+            `**Use for slides with layoutType**: ${appliesTo}`,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+
+        return `### Reference ${i + 1}\n${header}\n\`\`\`html\n${html}\n\`\`\``;
+      });
+
+      referenceSection = `
+## [RENDERING TECHNIQUE REFERENCES]
+Each reference below solves a specific visual composition problem.
+The "Use for slides with layoutType" field tells you WHICH slides in the specification should use each technique.
+
+**MANDATORY — How to apply references:**
+1. Find the slides whose layoutType matches the reference's "Use for" field
+2. Extract the CSS STRUCTURAL PATTERN from the reference (grid-template-columns, flex layout, positioning)
+3. Apply that exact structural pattern to YOUR slide — adapt content and colors to match the spec's theme
+4. For split-ratio references: copy the \`grid-template-columns: Xfr Yfr\` pattern exactly
+5. For node-connector references: copy the flex/absolute positioning approach for connectors
+6. For emphasis-placement references: copy the font-size hierarchy and element ordering
+7. Do NOT copy the reference's content, colors, or fonts — only the layout structure
+
+${annotated.join("\n\n")}
+`;
+    }
 
     let prompt: string;
 
@@ -66,7 +123,7 @@ ${currentHtml}
 
 ## Critic Feedback — Fix These Issues
 ${criticFeedback}
-
+${referenceSection}
 Generate the COMPLETE revised HTML file addressing ALL the feedback above.
 Return ONLY the HTML code. Start with <!DOCTYPE html> and end with </html>.
 Do NOT wrap in markdown code fences.`;
@@ -79,7 +136,7 @@ ${userRequest}
 
 ## Slide Specification
 ${slideSpec}
-
+${referenceSection}
 Return ONLY the complete HTML code. Start with <!DOCTYPE html> and end with </html>.
 Do NOT wrap in markdown code fences.`;
     }

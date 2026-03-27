@@ -5,7 +5,7 @@ import { Mastra } from "@mastra/core/mastra";
 import { RequestContext } from "@mastra/core/request-context";
 import { PinoLogger } from "@mastra/loggers";
 import { FilteredFileTransport } from "./logger/filtered-file-transport";
-import { PostgresStore } from "@mastra/pg";
+import { PostgresStore, PgVector } from "@mastra/pg";
 import { Memory } from "@mastra/memory";
 
 import {
@@ -116,6 +116,12 @@ export async function initializeMastra(): Promise<{
   // Final Responser Agent 생성 (응답 합성 전용, 공유 Memory에 응답 기록)
   const finalResponserAgent = createFinalResponserAgent(conversationMemory);
 
+  // PgVector 인스턴스 (RAG용 — 같은 PostgreSQL 재사용)
+  const pgVector = new PgVector({
+    id: "pg-vector",
+    connectionString: process.env.DATABASE_URL!,
+  });
+
   // Mastra 인스턴스 생성
   const mastra = new Mastra({
     agents: {
@@ -141,6 +147,9 @@ export async function initializeMastra(): Promise<{
     },
     memory: {
       conversationMemory,
+    },
+    vectors: {
+      pgVector,
     },
     storage: new PostgresStore({
       id: "mastra",
