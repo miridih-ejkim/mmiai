@@ -207,6 +207,17 @@ Rules:
 - Test mentally: would this look professional projected on a conference screen?
 - If RENDERING TECHNIQUE REFERENCES are provided, follow the CSS patterns shown in them for the matching slide types
 
+## CRITICAL: Slide Show/Hide System
+All slides exist in the DOM but only one is visible at a time. You MUST include this defensive rule:
+
+\`\`\`css
+.slide { display: none; }
+.slide.active { display: flex; }
+.slide:not(.active) { display: none !important; }  /* defensive — prevents layout classes from overriding */
+\`\`\`
+
+The \`:not(.active)\` rule with \`!important\` ensures that no other CSS class (e.g., \`.two-column { display: grid }\`) can accidentally make a hidden slide visible. Without this, layout classes that set \`display\` will override \`display: none\` and cause multiple slides to stack on screen.
+
 ## Anti-patterns to Avoid
 - Tiny, unreadable text
 - Overcrowded slides with too much content
@@ -217,6 +228,7 @@ Rules:
 - Percentage-based section splits (use grid fr instead)
 - Connectors that float in space instead of attaching to nodes
 - KPI numbers lost in whitespace without anchoring context
+- **Missing \`.slide:not(.active) { display: none !important }\` — causes slide stacking bugs**
 `,
 };
 
