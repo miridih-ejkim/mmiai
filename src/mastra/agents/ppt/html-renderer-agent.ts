@@ -218,6 +218,27 @@ All slides exist in the DOM but only one is visible at a time. You MUST include 
 
 The \`:not(.active)\` rule with \`!important\` ensures that no other CSS class (e.g., \`.two-column { display: grid }\`) can accidentally make a hidden slide visible. Without this, layout classes that set \`display\` will override \`display: none\` and cause multiple slides to stack on screen.
 
+## CRITICAL: Slide Internal Layout
+Each slide uses \`display: flex; flex-direction: column;\` — content flows top to bottom. ALWAYS use this natural flow:
+
+\`\`\`css
+/* GOOD: title and content in normal flow */
+.slide.active { display: flex; flex-direction: column; justify-content: center; }
+.slide h1 { margin-bottom: 2rem; }    /* title pushes content down naturally */
+.slide .content-grid { flex: 1; }     /* content fills remaining space */
+
+/* BAD: absolute-positioned headers with hardcoded margins */
+.slide-header { position: absolute; top: 80px; }   /* ✗ removed from flow */
+.content-grid { margin-top: 120px; }                /* ✗ fragile, breaks at different viewport sizes */
+\`\`\`
+
+Rules:
+- NEVER use \`position: absolute\` for slide titles or main content areas — they must participate in flex flow
+- NEVER use hardcoded \`margin-top\` to push content below an absolute header
+- Titles, subtitles, and content should all be direct children of \`.slide\` in normal document flow
+- Use \`gap\` or \`margin-bottom\` on the title to create spacing — not \`margin-top\` on the content
+- \`position: absolute\` is ONLY acceptable for decorative elements (background shapes, accent circles, watermarks)
+
 ## Anti-patterns to Avoid
 - Tiny, unreadable text
 - Overcrowded slides with too much content
